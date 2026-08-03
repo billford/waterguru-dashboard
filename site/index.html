@@ -202,6 +202,16 @@
   @keyframes chase-swim { 0%, 100% { transform: translateY(-50%) translateX(0); } 50% { transform: translateY(-50%) translateX(4px); } }
   @keyframes chase-shark { 0%, 100% { transform: translateY(-50%) translateX(0) scaleX(-1); } 50% { transform: translateY(-50%) translateX(7px) scaleX(-1); } }
   .fd-pill.meh .fd-pill-label { font-size: 10px; font-weight: 700; margin-top: 1px; }
+  .fd-pill.marginal { background: color-mix(in srgb, var(--warning) 22%, var(--grid)); color: #8a6400; }
+  :root[data-theme="dark"] .fd-pill.marginal { color: var(--warning); }
+  @media (prefers-color-scheme: dark) { :root:where(:not([data-theme="light"])) .fd-pill.marginal { color: var(--warning); } }
+
+  .heater-advice {
+    display: flex; gap: 10px; align-items: flex-start; margin: 4px 0 14px; padding: 12px 14px;
+    background: color-mix(in srgb, var(--series-1) 8%, var(--surface-1)); border: 1px solid var(--border);
+    border-radius: 12px; font-size: 13px; line-height: 1.5; color: var(--text-primary);
+  }
+  .heater-advice-icon { font-size: 16px; flex: none; }
 
   .swim-move {
     position: fixed; right: 18px; bottom: 18px; max-width: 220px;
@@ -258,8 +268,12 @@
 
   <div class="card" id="forecastCard" style="display:none;">
     <h2>5-day swim forecast</h2>
-    <div class="card-sub">via National Weather Service · green "Great to swim" pill marks the best days</div>
+    <div class="card-sub" id="forecastSub">via National Weather Service</div>
     <div class="forecast-row" id="forecastRow"></div>
+    <div class="heater-advice" id="heaterAdvice" style="display:none;">
+      <span class="heater-advice-icon">🌡️</span>
+      <span id="heaterAdviceText"></span>
+    </div>
   </div>
 
   <div class="card">
@@ -304,7 +318,7 @@
 </div>
 
 <script>
-const state = { data: null, rangeDays: 30, summary: null, weather: null };
+const state = { data: null, rangeDays: 30, summary: null, weather: null, advice: null };
 
 async function loadOptional(path) {
   try {
@@ -322,6 +336,7 @@ async function load() {
   state.data = json;
   state.summary = await loadOptional('data/summary.json');
   state.weather = await loadOptional('data/weather.json');
+  state.advice = await loadOptional('data/swim_advice.json');
   render();
   renderSummary();
   renderForecast();
@@ -339,16 +354,29 @@ function renderSummary() {
   document.getElementById('summaryText').textContent = s.text;
 }
 
+function verdictFor(d) {
+  const a = state.advice && state.advice.days && state.advice.days[d.date];
+  if (a) return { verdict: a.verdict, note: a.note };
+  return { verdict: d.good_swim_day ? 'good' : 'poor', note: d.swim_reason };
+}
+
 function renderForecast() {
   const card = document.getElementById('forecastCard');
   const days = state.weather && state.weather.days;
   if (!days || !days.length) { card.style.display = 'none'; return; }
   card.style.display = '';
+
+  const usingLlm = state.advice && state.advice.source === 'llm';
+  document.getElementById('forecastSub').textContent = usingLlm
+    ? 'via National Weather Service · verdicts by a local LLM (qwen2.5:32b), weighing season and current water temp'
+    : 'via National Weather Service';
+
   const row = document.getElementById('forecastRow');
   row.innerHTML = '';
   for (const d of days) {
+    const { verdict, note } = verdictFor(d);
     const el = document.createElement('div');
-    el.className = 'forecast-day' + (d.good_swim_day ? ' good' : '');
+    el.className = 'forecast-day' + ((verdict === 'great' || verdict === 'good') ? ' good' : '');
     const img = document.createElement('img');
     img.src = d.icon;
     img.alt = '';
@@ -365,18 +393,19 @@ function renderForecast() {
     el.appendChild(name); el.appendChild(img); el.appendChild(temp); el.appendChild(sub);
 
     const pill = document.createElement('div');
-    if (d.good_swim_day) {
+    pill.title = note || '';
+    if (verdict === 'great' || verdict === 'good') {
       pill.className = 'fd-pill good';
-      pill.innerHTML = '';
       const icon = document.createElement('span');
       icon.textContent = '🏊';
       const label = document.createElement('span');
-      label.textContent = 'Great to swim';
+      label.textContent = verdict === 'great' ? 'Great to swim' : 'Good to swim';
       pill.appendChild(icon); pill.appendChild(label);
-      pill.title = d.swim_reason;
+    } else if (verdict === 'marginal') {
+      pill.className = 'fd-pill marginal';
+      pill.textContent = 'Marginal';
     } else {
       pill.className = 'fd-pill meh';
-      pill.title = d.swim_reason;
       const scene = document.createElement('div');
       scene.className = 'chase-scene';
       const shark = document.createElement('span');
@@ -393,6 +422,15 @@ function renderForecast() {
     }
     el.appendChild(pill);
     row.appendChild(el);
+  }
+
+  const heaterBox = document.getElementById('heaterAdvice');
+  const heaterText = state.advice && state.advice.heater_advice;
+  if (heaterText) {
+    heaterBox.style.display = '';
+    document.getElementById('heaterAdviceText').textContent = heaterText;
+  } else {
+    heaterBox.style.display = 'none';
   }
 }
 

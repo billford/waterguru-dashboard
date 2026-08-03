@@ -6,6 +6,7 @@ data/waterguru.db
 site/data/history.json
 site/data/summary.json
 site/data/weather.json
+site/data/swim_advice.json
 __pycache__/
 *.pyc
 .wrangler/

@@ -53,9 +53,19 @@ Two more run after every fetch:
   holding steady. Nothing leaves the machine. Falls back to a rule-based summary
   if Ollama isn't running.
 - `weather.py` — pulls a 5-day forecast from the National Weather Service
-  (`api.weather.gov`, US only, no API key) and scores each day for outdoor
-  swimming (warm, dry, calm wins; rain/storms/wind knock the score down). The
-  dashboard marks good days with a 🏊.
+  (`api.weather.gov`, US only, no API key) and computes a rule-based swim
+  score per day as a fallback (warm/dry/calm wins; rain/storms/wind knock it
+  down).
+- `swim_advisor.py` — hands that forecast, today's date, and the pool's latest
+  water temp to a local LLM (`qwen2.5:32b`, chosen over `llama3.2:3b` and
+  `gpt-oss:20b` after comparing output — it gave the most consistent verdicts
+  and reliably followed the JSON output format) and asks for a per-day
+  great/good/marginal/poor verdict *and* heater advice — e.g. "Thursday's a
+  cooler dip, bump the setpoint two days ahead if you want it warmer" — since
+  a heated pool can be adjusted a few days in advance of a forecasted cool or
+  warm stretch. Falls back to `weather.py`'s rule-based score if Ollama isn't
+  reachable or the model's output doesn't validate (right verdict enum,
+  right dates).
 
 ## Setup
 

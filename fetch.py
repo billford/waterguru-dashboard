@@ -24,6 +24,7 @@ from publish import export as export_history
 from alerts import check_and_alert
 from weather import export_weather
 from trend_summary import export_summaries
+from swim_advisor import export_advice
 
 REGION = "us-west-2"
 POOL_ID = "us-west-2_icsnuWQWw"
@@ -111,6 +112,15 @@ def main():
         export_summaries(HERE / "site" / "data" / "history.json", HERE / "site" / "data" / "summary.json")
     except Exception as e:
         print(f"trend summary failed: {e}", file=sys.stderr)
+
+    try:
+        export_advice(
+            HERE / "site" / "data" / "weather.json",
+            HERE / "site" / "data" / "history.json",
+            HERE / "site" / "data" / "swim_advice.json",
+        )
+    except Exception as e:
+        print(f"swim advisor failed: {e}", file=sys.stderr)
 
 
 if __name__ == "__main__":
