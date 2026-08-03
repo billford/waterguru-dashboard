@@ -6,3 +6,4 @@ data/waterguru.db
 site/data/history.json
 __pycache__/
 *.pyc
+.wrangler/
