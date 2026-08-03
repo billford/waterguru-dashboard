@@ -206,8 +206,16 @@ launchctl load ~/Library/LaunchAgents/com.billfordx.waterguru-fetch.plist
   app. Anyone who knows the topic name can read the alerts (ntfy topics aren't
   access-controlled), so don't use something guessable.
 
-Fires once when status transitions to `RED`, and once when it recovers back to
-normal — not on every RED reading, and never for `YELLOW`.
+Two things trigger an alert, each firing once on the transition (not on every
+subsequent reading):
+
+- **Water chemistry status** — RED, and again when it recovers back to normal.
+  Never fires for `YELLOW`.
+- **Cassette replacement** — WaterGuru reports its own `status`/`urgent` flag on
+  the cassette (the consumable sensing pad), same as it does for water
+  chemistry. When that flips to `RED`/urgent, you get a "replace the cassette"
+  alert with the current %/days-left; a second alert fires once it's back to
+  `GREEN` after replacement.
 
 ---
 
