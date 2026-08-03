@@ -67,6 +67,7 @@ def fetch_forecast(lat: str, lon: str, days: int = 5) -> list[dict]:
         pop = (p.get("probabilityOfPrecipitation") or {}).get("value") or 0
         wind = _parse_wind_mph(p["windSpeed"])
         score, reason = swim_score(temp, pop, wind, p["shortForecast"])
+        icon = p["icon"].replace("size=medium", "size=large") if "size=" in p["icon"] else p["icon"] + "?size=large"
         out.append(
             {
                 "name": p["name"],
@@ -75,7 +76,7 @@ def fetch_forecast(lat: str, lon: str, days: int = 5) -> list[dict]:
                 "pop_pct": pop,
                 "wind_mph": wind,
                 "short_forecast": p["shortForecast"],
-                "icon": p["icon"],
+                "icon": icon,
                 "swim_score": score,
                 "swim_reason": reason,
                 "good_swim_day": score >= 65,
