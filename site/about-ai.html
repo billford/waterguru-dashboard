@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>How the AI works — Pool Dashboard</title>
+<style>
+  :root {
+    color-scheme: light;
+    --surface-1:      #fcfcfb;
+    --page:           #f9f9f7;
+    --text-primary:   #0b0b0b;
+    --text-secondary: #52514e;
+    --text-muted:     #898781;
+    --border:         rgba(11,11,11,0.10);
+    --series-1:       #2a78d6;
+    --series-2:       #eb6834;
+    --good:           #0ca30c;
+    --warning:        #fab219;
+    --critical:       #d03b3b;
+    --hero-1:         #1c5cab;
+    --hero-2:         #1baf7a;
+    --glow-1:         rgba(42,120,214,0.10);
+    --glow-2:         rgba(27,175,122,0.10);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --surface-1:      #1a1a19;
+      --page:           #0d0d0d;
+      --text-primary:   #ffffff;
+      --text-secondary: #c3c2b7;
+      --text-muted:     #898781;
+      --border:         rgba(255,255,255,0.10);
+      --series-1:       #3987e5;
+      --series-2:       #d95926;
+      --good:           #0ca30c;
+      --warning:        #fab219;
+      --critical:       #e66767;
+      --hero-1:         #104281;
+      --hero-2:         #199e70;
+      --glow-1:         rgba(57,135,229,0.14);
+      --glow-2:         rgba(25,158,112,0.12);
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --surface-1:      #1a1a19;
+    --page:           #0d0d0d;
+    --text-primary:   #ffffff;
+    --text-secondary: #c3c2b7;
+    --text-muted:     #898781;
+    --border:         rgba(255,255,255,0.10);
+    --series-1:       #3987e5;
+    --series-2:       #d95926;
+    --good:           #0ca30c;
+    --warning:        #fab219;
+    --critical:       #e66767;
+    --hero-1:         #104281;
+    --hero-2:         #199e70;
+    --glow-1:         rgba(57,135,229,0.14);
+    --glow-2:         rgba(25,158,112,0.12);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background:
+      radial-gradient(1100px 560px at 8% -8%, var(--glow-1), transparent 60%),
+      radial-gradient(900px 520px at 96% 6%, var(--glow-2), transparent 55%),
+      var(--page);
+    color: var(--text-primary);
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 760px; margin: 0 auto; padding: 0 20px 64px; }
+
+  .hero { position: relative; background: linear-gradient(135deg, var(--hero-1), var(--hero-2)); margin-bottom: 28px; }
+  .hero-inner { max-width: 760px; margin: 0 auto; padding: 28px 20px 40px; position: relative; z-index: 1; }
+  .hero-wave { display: block; width: 100%; height: 34px; position: relative; margin-top: -1px; }
+  .hero-wave path { fill: var(--page); }
+  .back-link { color: rgba(255,255,255,0.9); font-size: 13px; text-decoration: none; }
+  .back-link:hover { text-decoration: underline; }
+  .hero h1 { color: #fff; font-size: 26px; margin: 10px 0 6px; font-weight: 700; }
+  .hero p { color: rgba(255,255,255,0.9); font-size: 14px; margin: 0; max-width: 60ch; }
+
+  .card {
+    background: var(--surface-1); border: 1px solid var(--border); border-radius: 16px; padding: 20px 22px;
+    margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  }
+  .card h2 { font-size: 16px; font-weight: 700; margin: 0 0 4px; display: flex; align-items: center; gap: 8px; }
+  .card .tag {
+    font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px;
+    background: color-mix(in srgb, var(--series-1) 16%, transparent); color: var(--series-1);
+  }
+  .card p { font-size: 14px; line-height: 1.6; color: var(--text-primary); margin: 8px 0; }
+  .card p.muted { color: var(--text-secondary); }
+  .card ul { margin: 8px 0; padding-left: 20px; font-size: 14px; line-height: 1.6; }
+  .card ul li { margin-bottom: 4px; }
+  .card code {
+    background: var(--border); padding: 1px 6px; border-radius: 5px; font-size: 12.5px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+
+  table.model-table { width: 100%; border-collapse: collapse; font-size: 13px; margin: 10px 0; }
+  table.model-table th, table.model-table td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  table.model-table th { color: var(--text-muted); font-weight: 600; font-size: 12px; }
+  table.model-table td.used { color: var(--good); font-weight: 700; }
+
+  .flow-step {
+    display: flex; gap: 12px; align-items: flex-start; padding: 10px 0; border-top: 1px solid var(--border);
+  }
+  .flow-step:first-child { border-top: none; }
+  .flow-num {
+    flex: none; width: 22px; height: 22px; border-radius: 50%; background: var(--series-1); color: #fff;
+    font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center; margin-top: 1px;
+  }
+  .flow-text { font-size: 14px; line-height: 1.5; }
+  .flow-text b { font-weight: 600; }
+
+  .privacy-badge {
+    display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 700;
+    padding: 4px 10px; border-radius: 999px; background: color-mix(in srgb, var(--good) 16%, transparent); color: var(--good);
+    margin-bottom: 8px;
+  }
+
+  footer { text-align: center; color: var(--text-muted); font-size: 12px; margin-top: 30px; }
+  footer a { color: var(--text-muted); }
+</style>
+</head>
+<body>
+<div class="hero">
+  <div class="hero-inner">
+    <a class="back-link" href="index.html">&larr; Back to the dashboard</a>
+    <h1>How the AI on this dashboard works</h1>
+    <p>Two features here are LLM-generated: the trend summary and the swim/heater advisor. Both run on a
+      local model on the same Mac that fetches the pool data — here's exactly what each one sees, what
+      model answers it, and what happens if the model isn't available.</p>
+  </div>
+  <svg class="hero-wave" viewBox="0 0 1440 80" preserveAspectRatio="none" aria-hidden="true">
+    <path d="M0,40 C240,90 480,0 720,30 C960,60 1200,10 1440,40 L1440,80 L0,80 Z"></path>
+  </svg>
+</div>
+
+<div class="wrap">
+
+  <div class="card">
+    <span class="privacy-badge">🔒 Runs locally</span>
+    <p>Both AI features call <a href="https://ollama.com" target="_blank" rel="noopener">Ollama</a>, a
+      local LLM runtime, at <code>localhost:11434</code> on the same Mac that runs the twice-daily fetch.
+      The prompts (pool readings, weather forecast, today's date) never leave that machine, and neither
+      model has internet access or tool use — they just read the numbers they're given and write text
+      back. The only things that do leave the machine each run are the calls to WaterGuru, the National
+      Weather Service, and — if you've enabled push alerts — ntfy.sh.</p>
+  </div>
+
+  <div class="card">
+    <h2>Trend summary <span class="tag">llama3.2:3b</span></h2>
+    <p class="muted">The 2-3 sentence readout at the top of the dashboard on whether chlorine, pH, and
+      water temp are trending up, down, or holding steady.</p>
+    <div class="flow-step">
+      <div class="flow-num">1</div>
+      <div class="flow-text"><b>Input:</b> the last 14 days of readings for the pool — timestamp, status,
+        free chlorine, pH, water temp, and skimmer flow for each one.</div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-num">2</div>
+      <div class="flow-text"><b>Prompt:</b> asks the model to say, in plain prose (not a list), whether
+        each of those three readings is trending up, down, or steady, and whether things look solid or
+        need attention — with real numbers, not vague language.</div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-num">3</div>
+      <div class="flow-text"><b>Fallback:</b> if Ollama isn't reachable, a rule-based sentence is
+        generated instead by comparing the first and last reading in the window — same idea, just not
+        written by a model. The dashboard shows which one you're looking at.</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Swim &amp; heater advisor <span class="tag">qwen2.5:32b</span></h2>
+    <p class="muted">The great/good/marginal/poor verdict on each of the next 5 days, plus the heater
+      lead-time advice paragraph.</p>
+    <div class="flow-step">
+      <div class="flow-num">1</div>
+      <div class="flow-text"><b>Input:</b> today's date, the pool's most recent water-temperature
+        reading, and the 5-day National Weather Service forecast (high temp, rain chance, wind, and
+        conditions for each day).</div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-num">2</div>
+      <div class="flow-text"><b>Prompt:</b> asks the model to weigh each day's air temperature against
+        the water temp and against what's normal for the season, factor in rain/wind/storms, and — since
+        this is a heated pool that takes a couple of days to visibly move in temperature — call out any
+        day that's notably cooler or warmer than the rest of the stretch, with a concrete suggestion to
+        adjust the heater setpoint roughly 2-3 days ahead of it.</div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-num">3</div>
+      <div class="flow-text"><b>Output contract:</b> the model must return strict JSON — a verdict
+        (<code>great</code>/<code>good</code>/<code>marginal</code>/<code>poor</code>) and a one-phrase
+        note per day, plus the heater-advice paragraph. The response is validated (right dates, right
+        verdict values) before the dashboard trusts it.</div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-num">4</div>
+      <div class="flow-text"><b>Fallback:</b> if Ollama is unreachable, or the model's output fails
+        validation, the dashboard falls back to a fixed point formula instead (temperature, rain chance,
+        and wind each subtract points; any mention of storms is an automatic fail) — cruder, but it never
+        leaves the forecast card blank.</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Why these two models</h2>
+    <p class="muted">Three local models were compared for the swim advisor specifically, since it has to
+      weigh several factors into a judgment call <i>and</i> return valid JSON — that's a meaningfully
+      harder ask than the trend summary.</p>
+    <table class="model-table">
+      <thead><tr><th>Model</th><th>Result</th></tr></thead>
+      <tbody>
+        <tr><td>llama3.2:3b</td><td>Fast, valid JSON, but inconsistent or illogical verdicts — e.g. once
+          rated a sunny 78°F day worse than a stormy one.</td></tr>
+        <tr><td>gpt-oss:20b</td><td>Ignored the JSON output constraint entirely and returned rambling
+          chain-of-thought prose instead of the requested structure.</td></tr>
+        <tr class="used"><td class="used">qwen2.5:32b</td><td class="used">Reliable JSON every time, and
+          verdicts that were internally consistent (worse weather reliably scored worse) — this is what's
+          actually running. Takes roughly 30-45 seconds per run, which is a non-issue for something that
+          runs twice a day in the background.</td></tr>
+      </tbody>
+    </table>
+    <p>The trend summary's ask is simpler (summarize a table of numbers in a few sentences), so the
+      smaller, much faster <code>llama3.2:3b</code> handles it fine.</p>
+  </div>
+
+  <div class="card">
+    <h2>Nothing here is a substitute for judgment</h2>
+    <p>These are convenience reads, not safety systems. The chemistry alerts (RED/YELLOW/GREEN, cassette
+      replacement) are WaterGuru's own thresholds, not AI-generated — the LLMs only touch the trend
+      summary and the swim/heater advice. Treat both as a second opinion worth a glance, not a
+      replacement for checking the water yourself.</p>
+  </div>
+
+  <footer>
+    <a href="index.html">&larr; Back to the dashboard</a> ·
+    <a href="https://github.com/billford/waterguru-dashboard" target="_blank" rel="noopener">Source on GitHub</a>
+  </footer>
+</div>
+</body>
+</html>
