@@ -147,6 +147,42 @@
   table.data-table th { color: var(--text-muted); font-weight: 500; }
 
   footer { text-align: center; color: var(--text-muted); font-size: 12px; margin-top: 30px; }
+
+  .summary-text { font-size: 14px; line-height: 1.5; color: var(--text-primary); margin: 4px 0 14px; }
+
+  .forecast-row { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin-bottom: 6px; }
+  .forecast-day {
+    border: 1px solid var(--border); border-radius: 10px; padding: 10px 8px; text-align: center;
+    position: relative;
+  }
+  .forecast-day.good { box-shadow: inset 0 0 0 1.5px var(--good); }
+  .forecast-day .fd-name { font-size: 12px; color: var(--text-secondary); font-weight: 600; margin-bottom: 4px; }
+  .forecast-day img { width: 40px; height: 40px; display: block; margin: 0 auto; }
+  .forecast-day .fd-temp { font-size: 18px; font-weight: 600; margin-top: 2px; }
+  .forecast-day .fd-sub { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+  .forecast-day .fd-badge {
+    position: absolute; top: 6px; right: 6px; font-size: 14px;
+  }
+
+  .swim-move {
+    position: fixed; right: 18px; bottom: 18px; max-width: 220px;
+    background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px;
+    padding: 12px 14px; box-shadow: 0 6px 20px rgba(0,0,0,0.18); z-index: 10;
+  }
+  .swim-move-label { font-size: 11px; font-weight: 600; color: var(--text-muted); margin-bottom: 4px; }
+  .swim-move-text { font-size: 13px; color: var(--text-primary); line-height: 1.4; padding-right: 12px; }
+  .swim-move-close {
+    position: absolute; top: 6px; right: 8px; border: none; background: none; cursor: pointer;
+    color: var(--text-muted); font-size: 15px; line-height: 1; padding: 2px;
+  }
+  .swim-move-close:hover { color: var(--text-primary); }
+  @media (max-width: 640px) {
+    .forecast-row { grid-template-columns: repeat(5, minmax(0,1fr)); gap: 4px; }
+    .forecast-day { padding: 6px 3px; }
+    .forecast-day img { width: 28px; height: 28px; }
+    .forecast-day .fd-temp { font-size: 14px; }
+    .swim-move { left: 12px; right: 12px; max-width: none; bottom: 12px; }
+  }
 </style>
 </head>
 <body>
@@ -167,6 +203,18 @@
   </div>
 
   <div class="tiles" id="tiles"></div>
+
+  <div class="card" id="summaryCard" style="display:none;">
+    <h2>Trend summary</h2>
+    <div class="card-sub" id="summarySub"></div>
+    <p class="summary-text" id="summaryText"></p>
+  </div>
+
+  <div class="card" id="forecastCard" style="display:none;">
+    <h2>5-day swim forecast</h2>
+    <div class="card-sub">via National Weather Service · <span class="swim-emoji">🏊</span> marks the best days to swim</div>
+    <div class="forecast-row" id="forecastRow"></div>
+  </div>
 
   <div class="card">
     <h2>Free chlorine</h2>
@@ -203,15 +251,135 @@
 
 <div class="tooltip" id="tooltip"></div>
 
+<div class="swim-move" id="swimMove">
+  <button class="swim-move-close" id="swimMoveClose" aria-label="Dismiss">&times;</button>
+  <div class="swim-move-label">🏊 Today's move to practice</div>
+  <div class="swim-move-text" id="swimMoveText"></div>
+</div>
+
 <script>
-const state = { data: null, rangeDays: 30 };
+const state = { data: null, rangeDays: 30, summary: null, weather: null };
+
+async function loadOptional(path) {
+  try {
+    const res = await fetch(path, { cache: 'no-store' });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch (e) {
+    return null;
+  }
+}
 
 async function load() {
   const res = await fetch('data/history.json', { cache: 'no-store' });
   const json = await res.json();
   state.data = json;
+  state.summary = await loadOptional('data/summary.json');
+  state.weather = await loadOptional('data/weather.json');
   render();
+  renderSummary();
+  renderForecast();
+  renderSwimMove();
 }
+
+function renderSummary() {
+  const wbId = state.data && Object.keys(state.data.waterbodies)[0];
+  const s = state.summary && wbId ? state.summary[wbId] : null;
+  const card = document.getElementById('summaryCard');
+  if (!s) { card.style.display = 'none'; return; }
+  card.style.display = '';
+  document.getElementById('summarySub').textContent =
+    s.source === 'llm' ? 'generated locally by llama3.2:3b, based on recent readings' : 'based on recent readings';
+  document.getElementById('summaryText').textContent = s.text;
+}
+
+function renderForecast() {
+  const card = document.getElementById('forecastCard');
+  const days = state.weather && state.weather.days;
+  if (!days || !days.length) { card.style.display = 'none'; return; }
+  card.style.display = '';
+  const row = document.getElementById('forecastRow');
+  row.innerHTML = '';
+  for (const d of days) {
+    const el = document.createElement('div');
+    el.className = 'forecast-day' + (d.good_swim_day ? ' good' : '');
+    const img = document.createElement('img');
+    img.src = d.icon;
+    img.alt = '';
+    img.loading = 'lazy';
+    const name = document.createElement('div');
+    name.className = 'fd-name';
+    name.textContent = d.name.replace(/^This /, '');
+    const temp = document.createElement('div');
+    temp.className = 'fd-temp';
+    temp.textContent = d.temp_f + '°';
+    const sub = document.createElement('div');
+    sub.className = 'fd-sub';
+    sub.textContent = (d.pop_pct ? d.pop_pct + '% rain · ' : '') + d.wind_mph + ' mph';
+    el.appendChild(name); el.appendChild(img); el.appendChild(temp); el.appendChild(sub);
+    if (d.good_swim_day) {
+      const badge = document.createElement('div');
+      badge.className = 'fd-badge';
+      badge.textContent = '🏊';
+      badge.title = 'Good day to swim: ' + d.swim_reason;
+      el.appendChild(badge);
+    } else {
+      el.title = 'Not ideal: ' + d.swim_reason;
+    }
+    row.appendChild(el);
+  }
+}
+
+const SWIM_MOVES = [
+  'Streamline push-off: glide off the wall in a tight streamline for 5 seconds before your first stroke.',
+  'Catch-up freestyle: touch hands out front before starting the next stroke, 4 lengths.',
+  '25s of underwater dolphin kick off each wall.',
+  'Fingertip drag drill: drag fingertips along the water on the recovery, freestyle.',
+  'One-arm backstroke: 25 yards each arm, other arm at your side.',
+  'Breaststroke pullout practice: 5 pullouts focusing on a long glide.',
+  'Sighting drill: freestyle while lifting eyes forward every 6 strokes, like open water.',
+  '6-kick switch drill: 6 kicks on your side, switch, repeat down the pool.',
+  'Tarzan drill: head-up freestyle, sighting the whole length.',
+  'Butterfly: 4 x 15m focusing on the two-beat kick timing.',
+  'Diving practice: 5 dives focusing on a tight, flat entry.',
+  'Treading water: 2 minutes hands-only, no legs helping past the first 30s.',
+  'Flip turn practice: 8 flip turns focusing on a fast, tight tuck.',
+  'Backstroke flags drill: count strokes from the flags to the wall, aim for consistency.',
+  'Vertical kicking: 1 minute vertical, hands out of the water.',
+  'Sculling drill: front-scull 25m keeping the same body position throughout.',
+  'Breaststroke timing: pull-breathe-kick-glide, exaggerate the glide for 4 lengths.',
+  'Sprint 4 x 25m all-out freestyle, full recovery between.',
+  'Bilateral breathing: freestyle breathing every 3 strokes for 4 lengths.',
+  'Dolphin kick on your back, 25m, arms at your sides.',
+];
+
+function renderSwimMove() {
+  const box = document.getElementById('swimMove');
+  if (sessionStorage.getItem('swimMoveDismissed') === todayKey()) {
+    box.style.display = 'none';
+    return;
+  }
+  const idx = dateSeededIndex(todayKey(), SWIM_MOVES.length);
+  document.getElementById('swimMoveText').textContent = SWIM_MOVES[idx];
+}
+
+function todayKey() {
+  const d = new Date();
+  return d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate();
+}
+
+function dateSeededIndex(key, mod) {
+  let hash = 0;
+  for (let i = 0; i < key.length; i++) {
+    hash = (hash * 31 + key.charCodeAt(i)) >>> 0;
+  }
+  return hash % mod;
+}
+
+document.getElementById('swimMoveClose').addEventListener('click', () => {
+  sessionStorage.setItem('swimMoveDismissed', todayKey());
+  document.getElementById('swimMove').style.display = 'none';
+});
 
 function fmtDate(iso) {
   const d = new Date(iso);

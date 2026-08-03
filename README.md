@@ -1,8 +1,9 @@
 # WaterGuru Dashboard
 
 A small pipeline that pulls pool telemetry from a [WaterGuru Sense](https://waterguru.com/)
-device, stores it, and publishes it to a little static dashboard with charts and
-red/yellow/green alerting.
+device, stores it, and publishes it to a little static dashboard with charts,
+red/yellow/green alerting, a local-LLM trend summary, and a 5-day swim-weather
+forecast.
 
 Live example: https://waterguru-dashboard.pages.dev
 
@@ -44,6 +45,18 @@ Cloudflare Pages --wrangler pages deploy, no GitHub integration needed
 `alerts.py` runs after every fetch and fires a notification when a water body's
 status transitions to `RED`, or recovers from `RED` back to normal.
 
+Two more run after every fetch:
+
+- `trend_summary.py` — sends the last 14 days of readings to a **local** LLM via
+  [Ollama](https://ollama.com) (`localhost:11434`, model `llama3.2:3b`) and asks
+  for a 2-3 sentence read on whether chlorine/pH/temp are trending up, down, or
+  holding steady. Nothing leaves the machine. Falls back to a rule-based summary
+  if Ollama isn't running.
+- `weather.py` — pulls a 5-day forecast from the National Weather Service
+  (`api.weather.gov`, US only, no API key) and scores each day for outdoor
+  swimming (warm, dry, calm wins; rain/storms/wind knock the score down). The
+  dashboard marks good days with a 🏊.
+
 ## Setup
 
 ```bash
@@ -59,10 +72,16 @@ cp .env.example .env   # fill in WG_USER / WG_PASS (see below)
 WG_USER=your@email.address       # same login as the WaterGuru mobile app
 WG_PASS=your_waterguru_password
 NTFY_TOPIC=                       # optional, see Alerting below
+WX_LAT=                           # optional, for the 5-day swim forecast (US only)
+WX_LON=
 ```
 
-`.env` is gitignored — never commit it. So is `data/waterguru.db` and
-`site/data/history.json` (generated data, regenerated on every run).
+`.env` is gitignored — never commit it. So is `data/waterguru.db` and everything
+under `site/data/` except `.gitkeep` (all generated, regenerated on every run).
+
+The trend summary needs [Ollama](https://ollama.com) installed and running
+locally with `llama3.2:3b` pulled (`ollama pull llama3.2:3b`) — otherwise it
+quietly falls back to a simpler rule-based summary.
 
 ## Scheduling (twice a day)
 

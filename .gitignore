@@ -4,6 +4,8 @@ data/history.jsonl
 data/latest.json
 data/waterguru.db
 site/data/history.json
+site/data/summary.json
+site/data/weather.json
 __pycache__/
 *.pyc
 .wrangler/
