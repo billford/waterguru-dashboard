@@ -22,6 +22,10 @@
     --warning:        #fab219;
     --serious:        #ec835a;
     --critical:       #d03b3b;
+    --hero-1:         #1c5cab;
+    --hero-2:         #1baf7a;
+    --glow-1:         rgba(42,120,214,0.10);
+    --glow-2:         rgba(27,175,122,0.10);
   }
   @media (prefers-color-scheme: dark) {
     :root:where(:not([data-theme="light"])) {
@@ -41,6 +45,10 @@
       --warning:        #fab219;
       --serious:        #ec835a;
       --critical:       #e66767;
+      --hero-1:         #104281;
+      --hero-2:         #199e70;
+      --glow-1:         rgba(57,135,229,0.14);
+      --glow-2:         rgba(25,158,112,0.12);
     }
   }
   :root[data-theme="dark"] {
@@ -57,43 +65,54 @@
     --series-2:       #d95926;
     --series-3:       #199e70;
     --critical:       #e66767;
+    --hero-1:         #104281;
+    --hero-2:         #199e70;
+    --glow-1:         rgba(57,135,229,0.14);
+    --glow-2:         rgba(25,158,112,0.12);
   }
 
   * { box-sizing: border-box; }
   body {
     margin: 0;
-    background: var(--page);
+    background:
+      radial-gradient(1100px 560px at 8% -8%, var(--glow-1), transparent 60%),
+      radial-gradient(900px 520px at 96% 6%, var(--glow-2), transparent 55%),
+      var(--page);
     color: var(--text-primary);
     font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
     -webkit-font-smoothing: antialiased;
   }
-  .wrap { max-width: 1080px; margin: 0 auto; padding: 24px 20px 64px; }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 20px 64px; }
 
-  header.top { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 20px; }
+  .hero { position: relative; background: linear-gradient(135deg, var(--hero-1), var(--hero-2)); margin-bottom: 28px; }
+  .hero-inner { max-width: 1080px; margin: 0 auto; padding: 28px 20px 44px; position: relative; z-index: 1; }
+  .hero-wave { display: block; width: 100%; height: 34px; position: relative; margin-top: -1px; }
+  .hero-wave path { fill: var(--page); }
+
+  header.top { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 16px; }
   .pool-title { display: flex; align-items: baseline; gap: 12px; }
-  .pool-title h1 { font-size: 22px; margin: 0; font-weight: 600; }
-  .pool-sub { color: var(--text-muted); font-size: 13px; }
-  .status-pill { display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; border-radius: 999px; font-size: 13px; font-weight: 600; }
-  .status-pill.GREEN { background: color-mix(in srgb, var(--good) 16%, transparent); color: var(--good); }
-  .status-pill.YELLOW { background: color-mix(in srgb, var(--warning) 22%, transparent); color: #8a6400; }
-  :root[data-theme="dark"] .status-pill.YELLOW { color: var(--warning); }
-  @media (prefers-color-scheme: dark) {
-    :root:where(:not([data-theme="light"])) .status-pill.YELLOW { color: var(--warning); }
-  }
-  .status-pill.RED { background: color-mix(in srgb, var(--critical) 16%, transparent); color: var(--critical); }
+  .pool-title h1 { font-size: 24px; margin: 0; font-weight: 700; color: #fff; }
+  .pool-sub { color: rgba(255,255,255,0.85); font-size: 13px; }
+  .status-pill { display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; border-radius: 999px; font-size: 13px; font-weight: 700; background: rgba(255,255,255,0.95); }
+  .status-pill.GREEN { color: #067606; }
+  .status-pill.YELLOW { color: #8a6400; }
+  .status-pill.RED { color: #b91c1c; }
   .dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
 
-  .filters { display: flex; gap: 6px; margin-bottom: 18px; }
+  .filters { display: flex; gap: 6px; }
   .filters button {
     font: inherit; font-size: 13px; padding: 6px 12px; border-radius: 7px;
-    border: 1px solid var(--border); background: var(--surface-1); color: var(--text-secondary);
-    cursor: pointer;
+    border: 1px solid rgba(255,255,255,0.35); background: rgba(255,255,255,0.12); color: rgba(255,255,255,0.9);
+    cursor: pointer; backdrop-filter: blur(2px);
   }
-  .filters button[aria-pressed="true"] { color: var(--text-primary); font-weight: 600; box-shadow: inset 0 0 0 1.5px var(--series-1); }
-  .filters button:hover { color: var(--text-primary); }
+  .filters button[aria-pressed="true"] { color: #fff; font-weight: 700; background: rgba(255,255,255,0.28); border-color: rgba(255,255,255,0.7); }
+  .filters button:hover { background: rgba(255,255,255,0.22); }
 
   .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-bottom: 22px; }
-  .tile { background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; }
+  .tile {
+    background: var(--surface-1); border: 1px solid var(--border); border-radius: 14px; padding: 14px 16px;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+  }
   .tile .label { font-size: 12px; color: var(--text-muted); margin-bottom: 6px; }
   .tile .value { font-size: 22px; font-weight: 600; }
   .tile .value .unit { font-size: 13px; font-weight: 500; color: var(--text-secondary); margin-left: 2px; }
@@ -102,7 +121,10 @@
   .tile.status-YELLOW { box-shadow: inset 3px 0 0 var(--warning); }
   .tile.status-GREEN { box-shadow: inset 3px 0 0 var(--good); }
 
-  .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 14px; padding: 18px 20px 8px; margin-bottom: 16px; }
+  .card {
+    background: var(--surface-1); border: 1px solid var(--border); border-radius: 16px; padding: 18px 20px 8px;
+    margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  }
   .card h2 { font-size: 14px; font-weight: 600; margin: 0 0 2px; }
   .card .card-sub { font-size: 12px; color: var(--text-muted); margin-bottom: 8px; }
   .chart-svg { width: 100%; height: 220px; display: block; overflow: visible; }
@@ -150,19 +172,24 @@
 
   .summary-text { font-size: 14px; line-height: 1.5; color: var(--text-primary); margin: 4px 0 14px; }
 
-  .forecast-row { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin-bottom: 6px; }
+  .forecast-row { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-bottom: 6px; }
   .forecast-day {
-    border: 1px solid var(--border); border-radius: 10px; padding: 10px 8px; text-align: center;
-    position: relative;
+    border: 1px solid var(--border); border-radius: 14px; padding: 12px 8px 10px; text-align: center;
+    background: var(--surface-1); display: flex; flex-direction: column; align-items: center;
   }
-  .forecast-day.good { box-shadow: inset 0 0 0 1.5px var(--good); }
-  .forecast-day .fd-name { font-size: 12px; color: var(--text-secondary); font-weight: 600; margin-bottom: 4px; }
-  .forecast-day img { width: 40px; height: 40px; display: block; margin: 0 auto; }
-  .forecast-day .fd-temp { font-size: 18px; font-weight: 600; margin-top: 2px; }
-  .forecast-day .fd-sub { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
-  .forecast-day .fd-badge {
-    position: absolute; top: 6px; right: 6px; font-size: 14px;
+  .forecast-day.good { box-shadow: inset 0 0 0 2px var(--good); background: color-mix(in srgb, var(--good) 6%, var(--surface-1)); }
+  .forecast-day .fd-name { font-size: 12px; color: var(--text-secondary); font-weight: 700; margin-bottom: 6px; }
+  .forecast-day img { width: 40px; height: 40px; display: block; }
+  .forecast-day .fd-temp { font-size: 20px; font-weight: 700; margin-top: 2px; }
+  .forecast-day .fd-sub { font-size: 11px; color: var(--text-muted); margin-top: 2px; margin-bottom: 8px; }
+  .fd-pill {
+    display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 700;
+    padding: 4px 8px; border-radius: 999px; white-space: nowrap; margin-top: auto;
   }
+  .fd-pill.good { background: color-mix(in srgb, var(--good) 18%, transparent); color: #067606; }
+  :root[data-theme="dark"] .fd-pill.good { color: var(--good); }
+  @media (prefers-color-scheme: dark) { :root:where(:not([data-theme="light"])) .fd-pill.good { color: var(--good); } }
+  .fd-pill.meh { background: var(--grid); color: var(--text-muted); }
 
   .swim-move {
     position: fixed; right: 18px; bottom: 18px; max-width: 220px;
@@ -181,27 +208,34 @@
     .forecast-day { padding: 6px 3px; }
     .forecast-day img { width: 28px; height: 28px; }
     .forecast-day .fd-temp { font-size: 14px; }
+    .fd-pill { font-size: 9px; padding: 3px 5px; }
     .swim-move { left: 12px; right: 12px; max-width: none; bottom: 12px; }
   }
 </style>
 </head>
 <body>
-<div class="wrap">
-  <header class="top">
-    <div class="pool-title">
-      <h1 id="poolName">Pool</h1>
-      <span id="statusPill" class="status-pill GREEN"><span class="dot"></span><span id="statusText">—</span></span>
+<div class="hero">
+  <div class="hero-inner">
+    <header class="top">
+      <div class="pool-title">
+        <h1 id="poolName">Pool</h1>
+        <span id="statusPill" class="status-pill GREEN"><span class="dot"></span><span id="statusText">—</span></span>
+      </div>
+      <div class="pool-sub" id="lastUpdated">—</div>
+    </header>
+
+    <div class="filters" id="rangeFilters" role="group" aria-label="Date range">
+      <button data-days="7">7d</button>
+      <button data-days="30" aria-pressed="true">30d</button>
+      <button data-days="90">90d</button>
+      <button data-days="0">All</button>
     </div>
-    <div class="pool-sub" id="lastUpdated">—</div>
-  </header>
-
-  <div class="filters" id="rangeFilters" role="group" aria-label="Date range">
-    <button data-days="7">7d</button>
-    <button data-days="30" aria-pressed="true">30d</button>
-    <button data-days="90">90d</button>
-    <button data-days="0">All</button>
   </div>
-
+  <svg class="hero-wave" viewBox="0 0 1440 80" preserveAspectRatio="none" aria-hidden="true">
+    <path d="M0,40 C240,90 480,0 720,30 C960,60 1200,10 1440,40 L1440,80 L0,80 Z"></path>
+  </svg>
+</div>
+<div class="wrap">
   <div class="tiles" id="tiles"></div>
 
   <div class="card" id="summaryCard" style="display:none;">
@@ -212,7 +246,7 @@
 
   <div class="card" id="forecastCard" style="display:none;">
     <h2>5-day swim forecast</h2>
-    <div class="card-sub">via National Weather Service · <span class="swim-emoji">🏊</span> marks the best days to swim</div>
+    <div class="card-sub">via National Weather Service · green "Great to swim" pill marks the best days</div>
     <div class="forecast-row" id="forecastRow"></div>
   </div>
 
@@ -317,15 +351,23 @@ function renderForecast() {
     sub.className = 'fd-sub';
     sub.textContent = (d.pop_pct ? d.pop_pct + '% rain · ' : '') + d.wind_mph + ' mph';
     el.appendChild(name); el.appendChild(img); el.appendChild(temp); el.appendChild(sub);
+
+    const pill = document.createElement('div');
     if (d.good_swim_day) {
-      const badge = document.createElement('div');
-      badge.className = 'fd-badge';
-      badge.textContent = '🏊';
-      badge.title = 'Good day to swim: ' + d.swim_reason;
-      el.appendChild(badge);
+      pill.className = 'fd-pill good';
+      pill.innerHTML = '';
+      const icon = document.createElement('span');
+      icon.textContent = '🏊';
+      const label = document.createElement('span');
+      label.textContent = 'Great to swim';
+      pill.appendChild(icon); pill.appendChild(label);
+      pill.title = d.swim_reason;
     } else {
-      el.title = 'Not ideal: ' + d.swim_reason;
+      pill.className = 'fd-pill meh';
+      pill.textContent = 'Not ideal';
+      pill.title = d.swim_reason;
     }
+    el.appendChild(pill);
     row.appendChild(el);
   }
 }
