@@ -1,0 +1,528 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Pool Dashboard</title>
+<style>
+  :root {
+    color-scheme: light;
+    --surface-1:      #fcfcfb;
+    --page:           #f9f9f7;
+    --text-primary:   #0b0b0b;
+    --text-secondary: #52514e;
+    --text-muted:     #898781;
+    --grid:           #e1e0d9;
+    --baseline:       #c3c2b7;
+    --border:         rgba(11,11,11,0.10);
+    --series-1:       #2a78d6; /* blue - chlorine */
+    --series-2:       #eb6834; /* orange - ph */
+    --series-3:       #1baf7a; /* aqua - temp */
+    --good:           #0ca30c;
+    --warning:        #fab219;
+    --serious:        #ec835a;
+    --critical:       #d03b3b;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --surface-1:      #1a1a19;
+      --page:           #0d0d0d;
+      --text-primary:   #ffffff;
+      --text-secondary: #c3c2b7;
+      --text-muted:     #898781;
+      --grid:           #2c2c2a;
+      --baseline:       #383835;
+      --border:         rgba(255,255,255,0.10);
+      --series-1:       #3987e5;
+      --series-2:       #d95926;
+      --series-3:       #199e70;
+      --good:           #0ca30c;
+      --warning:        #fab219;
+      --serious:        #ec835a;
+      --critical:       #e66767;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --surface-1:      #1a1a19;
+    --page:           #0d0d0d;
+    --text-primary:   #ffffff;
+    --text-secondary: #c3c2b7;
+    --text-muted:     #898781;
+    --grid:           #2c2c2a;
+    --baseline:       #383835;
+    --border:         rgba(255,255,255,0.10);
+    --series-1:       #3987e5;
+    --series-2:       #d95926;
+    --series-3:       #199e70;
+    --critical:       #e66767;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--page);
+    color: var(--text-primary);
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 24px 20px 64px; }
+
+  header.top { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 20px; }
+  .pool-title { display: flex; align-items: baseline; gap: 12px; }
+  .pool-title h1 { font-size: 22px; margin: 0; font-weight: 600; }
+  .pool-sub { color: var(--text-muted); font-size: 13px; }
+  .status-pill { display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; border-radius: 999px; font-size: 13px; font-weight: 600; }
+  .status-pill.GREEN { background: color-mix(in srgb, var(--good) 16%, transparent); color: var(--good); }
+  .status-pill.YELLOW { background: color-mix(in srgb, var(--warning) 22%, transparent); color: #8a6400; }
+  :root[data-theme="dark"] .status-pill.YELLOW { color: var(--warning); }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) .status-pill.YELLOW { color: var(--warning); }
+  }
+  .status-pill.RED { background: color-mix(in srgb, var(--critical) 16%, transparent); color: var(--critical); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+
+  .filters { display: flex; gap: 6px; margin-bottom: 18px; }
+  .filters button {
+    font: inherit; font-size: 13px; padding: 6px 12px; border-radius: 7px;
+    border: 1px solid var(--border); background: var(--surface-1); color: var(--text-secondary);
+    cursor: pointer;
+  }
+  .filters button[aria-pressed="true"] { color: var(--text-primary); font-weight: 600; box-shadow: inset 0 0 0 1.5px var(--series-1); }
+  .filters button:hover { color: var(--text-primary); }
+
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-bottom: 22px; }
+  .tile { background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; }
+  .tile .label { font-size: 12px; color: var(--text-muted); margin-bottom: 6px; }
+  .tile .value { font-size: 22px; font-weight: 600; }
+  .tile .value .unit { font-size: 13px; font-weight: 500; color: var(--text-secondary); margin-left: 2px; }
+  .tile .sub { font-size: 12px; color: var(--text-secondary); margin-top: 4px; }
+  .tile.status-RED { box-shadow: inset 3px 0 0 var(--critical); }
+  .tile.status-YELLOW { box-shadow: inset 3px 0 0 var(--warning); }
+  .tile.status-GREEN { box-shadow: inset 3px 0 0 var(--good); }
+
+  .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 14px; padding: 18px 20px 8px; margin-bottom: 16px; }
+  .card h2 { font-size: 14px; font-weight: 600; margin: 0 0 2px; }
+  .card .card-sub { font-size: 12px; color: var(--text-muted); margin-bottom: 8px; }
+  .chart-svg { width: 100%; height: 220px; display: block; overflow: visible; }
+  .chart-svg .grid-line { stroke: var(--grid); stroke-width: 1; }
+  .chart-svg .baseline { stroke: var(--baseline); stroke-width: 1; }
+  .chart-svg .target-line { stroke: var(--text-muted); stroke-width: 1; stroke-dasharray: 3 3; }
+  .chart-svg .line-path { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+  .chart-svg .area-path { opacity: 0.10; }
+  .chart-svg .end-dot { r: 4; stroke-width: 2; stroke: var(--surface-1); }
+  .chart-svg text { fill: var(--text-muted); font-size: 11px; }
+  .chart-svg .end-label { fill: var(--text-primary); font-size: 12px; font-weight: 600; }
+  .crosshair { stroke: var(--baseline); stroke-width: 1; opacity: 0; pointer-events: none; }
+  .hover-dot { r: 5; opacity: 0; pointer-events: none; stroke: var(--surface-1); stroke-width: 2; }
+  .hit-layer { fill: transparent; }
+
+  .tooltip {
+    position: absolute; pointer-events: none; background: var(--text-primary); color: var(--page);
+    font-size: 12px; padding: 6px 10px; border-radius: 8px; opacity: 0; transform: translate(-50%, -110%);
+    white-space: nowrap; z-index: 5; transition: opacity 0.08s;
+  }
+  :root[data-theme="dark"] .tooltip { background: #fff; color: #0b0b0b; }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) .tooltip { background: #fff; color: #0b0b0b; }
+  }
+  .tooltip .tt-val { font-weight: 700; }
+
+  .empty-note { font-size: 13px; color: var(--text-muted); padding: 24px 0; text-align: center; }
+
+  .alerts { display: flex; flex-direction: column; gap: 8px; margin-bottom: 4px; }
+  .alert-row { display: flex; align-items: flex-start; gap: 10px; font-size: 13px; padding: 8px 0; border-top: 1px solid var(--border); }
+  .alert-row:first-child { border-top: none; }
+  .alert-icon { width: 9px; height: 9px; border-radius: 50%; margin-top: 4px; flex: none; }
+  .alert-icon.RED { background: var(--critical); }
+  .alert-icon.YELLOW { background: var(--warning); }
+  .alert-icon.GREEN { background: var(--good); }
+  .alert-text { color: var(--text-primary); }
+  .alert-meta { color: var(--text-muted); font-size: 12px; }
+
+  .table-toggle { font-size: 12px; color: var(--text-secondary); background: none; border: none; text-decoration: underline; cursor: pointer; padding: 0; margin-bottom: 10px; }
+  table.data-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 14px; }
+  table.data-table th, table.data-table td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); font-variant-numeric: tabular-nums; }
+  table.data-table th { color: var(--text-muted); font-weight: 500; }
+
+  footer { text-align: center; color: var(--text-muted); font-size: 12px; margin-top: 30px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div class="pool-title">
+      <h1 id="poolName">Pool</h1>
+      <span id="statusPill" class="status-pill GREEN"><span class="dot"></span><span id="statusText">—</span></span>
+    </div>
+    <div class="pool-sub" id="lastUpdated">—</div>
+  </header>
+
+  <div class="filters" id="rangeFilters" role="group" aria-label="Date range">
+    <button data-days="7">7d</button>
+    <button data-days="30" aria-pressed="true">30d</button>
+    <button data-days="90">90d</button>
+    <button data-days="0">All</button>
+  </div>
+
+  <div class="tiles" id="tiles"></div>
+
+  <div class="card">
+    <h2>Free chlorine</h2>
+    <div class="card-sub">ppm · target line shows configured target</div>
+    <div id="chart-free_cl"></div>
+  </div>
+
+  <div class="card">
+    <h2>pH</h2>
+    <div class="card-sub">target line shows configured target</div>
+    <div id="chart-ph"></div>
+  </div>
+
+  <div class="card">
+    <h2>Water temperature</h2>
+    <div class="card-sub">°F</div>
+    <div id="chart-water_temp"></div>
+  </div>
+
+  <div class="card">
+    <h2>Alerts</h2>
+    <div class="card-sub" id="alertsSub"></div>
+    <div class="alerts" id="alerts"></div>
+  </div>
+
+  <div class="card">
+    <h2>Raw readings</h2>
+    <button class="table-toggle" id="tableToggle">Show table view</button>
+    <div id="tableWrap" style="display:none;"></div>
+  </div>
+
+  <footer id="genFooter">—</footer>
+</div>
+
+<div class="tooltip" id="tooltip"></div>
+
+<script>
+const state = { data: null, rangeDays: 30 };
+
+async function load() {
+  const res = await fetch('data/history.json', { cache: 'no-store' });
+  const json = await res.json();
+  state.data = json;
+  render();
+}
+
+function fmtDate(iso) {
+  const d = new Date(iso);
+  return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+}
+function fmtDateShort(iso) {
+  const d = new Date(iso);
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
+function currentWaterbody() {
+  const wbs = state.data.waterbodies;
+  const id = Object.keys(wbs)[0];
+  return wbs ? wbs[id] : null;
+}
+
+function filteredSeries(wb) {
+  if (!wb) return [];
+  if (state.rangeDays === 0) return wb.series;
+  const cutoff = Date.now() - state.rangeDays * 86400000;
+  return wb.series.filter(p => new Date(p.t).getTime() >= cutoff);
+}
+
+function render() {
+  const wb = currentWaterbody();
+  if (!wb) {
+    document.getElementById('poolName').textContent = 'No pool data yet';
+    return;
+  }
+  document.getElementById('poolName').textContent = wb.name || 'Pool';
+  document.getElementById('genFooter').textContent =
+    'Data generated ' + fmtDate(state.data.generated_at) + ' · WaterGuru Sense, polled ~2x/day';
+
+  const series = filteredSeries(wb);
+  const latest = wb.series[wb.series.length - 1];
+
+  const pill = document.getElementById('statusPill');
+  const status = latest ? latest.status : 'GREEN';
+  pill.className = 'status-pill ' + status;
+  document.getElementById('statusText').textContent =
+    status === 'GREEN' ? 'All normal' : status === 'YELLOW' ? 'Needs attention' : 'Action needed';
+  document.getElementById('lastUpdated').textContent = latest ? 'Last reading ' + fmtDate(latest.t) : '';
+
+  renderTiles(latest, wb.targets);
+  renderChart('chart-free_cl', series, 'free_cl', 'ppm', wb.targets.free_cl, 'var(--series-1)');
+  renderChart('chart-ph', series, 'ph', '', wb.targets.ph, 'var(--series-2)');
+  renderChart('chart-water_temp', series, 'water_temp', '°F', null, 'var(--series-3)');
+  renderAlerts(latest);
+  renderTable(series);
+}
+
+function renderTiles(latest, targets) {
+  const tiles = document.getElementById('tiles');
+  tiles.innerHTML = '';
+  if (!latest) { tiles.innerHTML = '<div class="empty-note">No readings yet.</div>'; return; }
+
+  const items = [
+    { label: 'Water temp', value: latest.water_temp, unit: '°F', status: null },
+    { label: 'Free chlorine', value: latest.free_cl, unit: 'ppm', sub: targets.free_cl ? 'target ' + targets.free_cl : null, status: statusFor(latest, 'FREE_CL') },
+    { label: 'pH', value: latest.ph, unit: '', sub: targets.ph ? 'target ' + targets.ph : null, status: statusFor(latest, 'PH') },
+    { label: 'Skimmer flow', value: latest.skimmer_flow, unit: 'gpm', status: null },
+    { label: 'Cassette left', value: latest.cassette_pct_left, unit: '%', sub: latest.cassette_days_left, status: null },
+    { label: 'Battery', value: latest.battery_pct_left, unit: '%', sub: latest.battery_time_left, status: null },
+    { label: 'WiFi', value: latest.rssi, unit: 'dBm', sub: latest.rssi_desc, status: null },
+  ];
+
+  for (const it of items) {
+    const el = document.createElement('div');
+    el.className = 'tile' + (it.status ? ' status-' + it.status : '');
+    const val = (it.value === null || it.value === undefined) ? '—' : it.value;
+    el.innerHTML =
+      '<div class="label"></div><div class="value"></div><div class="sub"></div>';
+    el.querySelector('.label').textContent = it.label;
+    const valEl = el.querySelector('.value');
+    valEl.textContent = val;
+    if (it.unit) { const u = document.createElement('span'); u.className = 'unit'; u.textContent = it.unit; valEl.appendChild(u); }
+    el.querySelector('.sub').textContent = it.sub || '';
+    tiles.appendChild(el);
+  }
+}
+
+function statusFor(point, source) {
+  const a = (point.alerts || []).find(x => x.source === source);
+  return a ? a.status : 'GREEN';
+}
+
+function renderAlerts(latest) {
+  const wrap = document.getElementById('alerts');
+  const sub = document.getElementById('alertsSub');
+  wrap.innerHTML = '';
+  const alerts = latest ? (latest.alerts || []) : [];
+  sub.textContent = alerts.length ? ('from the latest reading, ' + fmtDate(latest.t)) : '';
+  if (!alerts.length) {
+    wrap.innerHTML = '<div class="empty-note">No active alerts.</div>';
+    return;
+  }
+  for (const a of alerts) {
+    const row = document.createElement('div');
+    row.className = 'alert-row';
+    const icon = document.createElement('div');
+    icon.className = 'alert-icon ' + (a.status || 'GREEN');
+    const text = document.createElement('div');
+    const t = document.createElement('div');
+    t.className = 'alert-text';
+    t.textContent = a.text || a.source;
+    const m = document.createElement('div');
+    m.className = 'alert-meta';
+    m.textContent = a.condition || '';
+    text.appendChild(t); text.appendChild(m);
+    row.appendChild(icon); row.appendChild(text);
+    wrap.appendChild(row);
+  }
+}
+
+function renderTable(series) {
+  const wrap = document.getElementById('tableWrap');
+  if (!series.length) { wrap.innerHTML = '<div class="empty-note">No readings in range.</div>'; return; }
+  let html = '<table class="data-table"><thead><tr><th>Time</th><th>Status</th><th>Temp</th><th>Free Cl</th><th>pH</th><th>Flow</th></tr></thead><tbody>';
+  for (const p of [...series].reverse()) {
+    html += '<tr><td>' + fmtDate(p.t) + '</td><td>' + (p.status || '') + '</td><td>' + (p.water_temp ?? '') +
+      '</td><td>' + (p.free_cl ?? '') + '</td><td>' + (p.ph ?? '') + '</td><td>' + (p.skimmer_flow ?? '') + '</td></tr>';
+  }
+  html += '</tbody></table>';
+  wrap.innerHTML = html;
+}
+
+document.getElementById('tableToggle').addEventListener('click', (e) => {
+  const wrap = document.getElementById('tableWrap');
+  const showing = wrap.style.display !== 'none';
+  wrap.style.display = showing ? 'none' : 'block';
+  e.target.textContent = showing ? 'Show table view' : 'Hide table view';
+});
+
+document.getElementById('rangeFilters').addEventListener('click', (e) => {
+  const btn = e.target.closest('button');
+  if (!btn) return;
+  document.querySelectorAll('#rangeFilters button').forEach(b => b.setAttribute('aria-pressed', 'false'));
+  btn.setAttribute('aria-pressed', 'true');
+  state.rangeDays = Number(btn.dataset.days);
+  render();
+});
+
+// ---- Line chart renderer (single series, SVG, crosshair + tooltip) ----
+const PAD = { top: 16, right: 16, bottom: 24, left: 40 };
+const W = 800, H = 220;
+
+function renderChart(containerId, series, field, unit, target, colorVar) {
+  const container = document.getElementById(containerId);
+  const points = series.filter(p => p[field] !== null && p[field] !== undefined);
+  if (points.length === 0) {
+    container.innerHTML = '<div class="empty-note">No data in this range yet.</div>';
+    return;
+  }
+
+  const values = points.map(p => p[field]);
+  let min = Math.min(...values, target ?? values[0]);
+  let max = Math.max(...values, target ?? values[0]);
+  if (min === max) { min -= 1; max += 1; }
+  const pad = (max - min) * 0.15 || 1;
+  min -= pad; max += pad;
+
+  const times = points.map(p => new Date(p.t).getTime());
+  const tMin = Math.min(...times), tMax = Math.max(...times);
+  const tSpan = (tMax - tMin) || 1;
+
+  const x = t => PAD.left + ((t - tMin) / tSpan) * (W - PAD.left - PAD.right);
+  const y = v => PAD.top + (1 - (v - min) / (max - min)) * (H - PAD.top - PAD.bottom);
+
+  const coords = points.map((p, i) => [x(times[i]), y(p[field])]);
+  const linePath = coords.map((c, i) => (i === 0 ? 'M' : 'L') + c[0].toFixed(1) + ',' + c[1].toFixed(1)).join(' ');
+  const areaPath = linePath + ' L' + coords[coords.length - 1][0].toFixed(1) + ',' + y(min).toFixed(1) +
+    ' L' + coords[0][0].toFixed(1) + ',' + y(min).toFixed(1) + ' Z';
+
+  const svgNS = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(svgNS, 'svg');
+  svg.setAttribute('class', 'chart-svg');
+  svg.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
+  svg.setAttribute('preserveAspectRatio', 'none');
+
+  // gridlines (3 horizontal)
+  for (let i = 0; i <= 2; i++) {
+    const v = min + (max - min) * (i / 2);
+    const gy = y(v);
+    const gl = document.createElementNS(svgNS, 'line');
+    gl.setAttribute('class', 'grid-line');
+    gl.setAttribute('x1', PAD.left); gl.setAttribute('x2', W - PAD.right);
+    gl.setAttribute('y1', gy); gl.setAttribute('y2', gy);
+    svg.appendChild(gl);
+    const lbl = document.createElementNS(svgNS, 'text');
+    lbl.setAttribute('x', 4); lbl.setAttribute('y', gy + 4);
+    lbl.textContent = Number(v.toFixed(1));
+    svg.appendChild(lbl);
+  }
+
+  // target line
+  if (target !== null && target !== undefined) {
+    const ty = y(target);
+    const tl = document.createElementNS(svgNS, 'line');
+    tl.setAttribute('class', 'target-line');
+    tl.setAttribute('x1', PAD.left); tl.setAttribute('x2', W - PAD.right);
+    tl.setAttribute('y1', ty); tl.setAttribute('y2', ty);
+    svg.appendChild(tl);
+    const tlbl = document.createElementNS(svgNS, 'text');
+    tlbl.setAttribute('x', W - PAD.right); tlbl.setAttribute('y', ty - 4);
+    tlbl.setAttribute('text-anchor', 'end');
+    tlbl.textContent = 'target ' + target;
+    svg.appendChild(tlbl);
+  }
+
+  // x-axis time labels (start/end)
+  [0, points.length - 1].forEach(i => {
+    if (i < 0) return;
+    const lbl = document.createElementNS(svgNS, 'text');
+    lbl.setAttribute('x', coords[i][0]); lbl.setAttribute('y', H - 6);
+    lbl.setAttribute('text-anchor', i === 0 ? 'start' : 'end');
+    lbl.textContent = fmtDateShort(points[i].t);
+    svg.appendChild(lbl);
+  });
+
+  const area = document.createElementNS(svgNS, 'path');
+  area.setAttribute('class', 'area-path');
+  area.setAttribute('d', areaPath);
+  area.setAttribute('fill', colorVar);
+  svg.appendChild(area);
+
+  const line = document.createElementNS(svgNS, 'path');
+  line.setAttribute('class', 'line-path');
+  line.setAttribute('d', linePath);
+  line.setAttribute('stroke', colorVar);
+  svg.appendChild(line);
+
+  const lastPt = coords[coords.length - 1];
+  const endDot = document.createElementNS(svgNS, 'circle');
+  endDot.setAttribute('class', 'end-dot');
+  endDot.setAttribute('cx', lastPt[0]); endDot.setAttribute('cy', lastPt[1]);
+  endDot.setAttribute('fill', colorVar);
+  svg.appendChild(endDot);
+
+  const endLabel = document.createElementNS(svgNS, 'text');
+  endLabel.setAttribute('class', 'end-label');
+  endLabel.setAttribute('x', Math.min(lastPt[0] + 8, W - 30));
+  endLabel.setAttribute('y', lastPt[1] - 8);
+  endLabel.textContent = points[points.length - 1][field] + (unit ? ' ' + unit : '');
+  svg.appendChild(endLabel);
+
+  const crosshair = document.createElementNS(svgNS, 'line');
+  crosshair.setAttribute('class', 'crosshair');
+  crosshair.setAttribute('y1', PAD.top); crosshair.setAttribute('y2', H - PAD.bottom);
+  svg.appendChild(crosshair);
+
+  const hoverDot = document.createElementNS(svgNS, 'circle');
+  hoverDot.setAttribute('class', 'hover-dot');
+  hoverDot.setAttribute('fill', colorVar);
+  svg.appendChild(hoverDot);
+
+  const hit = document.createElementNS(svgNS, 'rect');
+  hit.setAttribute('class', 'hit-layer');
+  hit.setAttribute('x', PAD.left); hit.setAttribute('y', 0);
+  hit.setAttribute('width', W - PAD.left - PAD.right); hit.setAttribute('height', H);
+  svg.appendChild(hit);
+
+  const tooltip = document.getElementById('tooltip');
+
+  function nearestIndex(px) {
+    let best = 0, bestD = Infinity;
+    coords.forEach((c, i) => {
+      const d = Math.abs(c[0] - px);
+      if (d < bestD) { bestD = d; best = i; }
+    });
+    return best;
+  }
+
+  function onMove(evt) {
+    const rect = svg.getBoundingClientRect();
+    const scaleX = W / rect.width;
+    const px = (evt.clientX - rect.left) * scaleX;
+    const i = nearestIndex(px);
+    const [cx, cy] = coords[i];
+    crosshair.setAttribute('x1', cx); crosshair.setAttribute('x2', cx);
+    crosshair.style.opacity = 1;
+    hoverDot.setAttribute('cx', cx); hoverDot.setAttribute('cy', cy);
+    hoverDot.style.opacity = 1;
+
+    const scaleXtoScreen = rect.width / W;
+    const scaleYtoScreen = rect.height / H;
+    tooltip.style.left = (rect.left + cx * scaleXtoScreen + window.scrollX) + 'px';
+    tooltip.style.top = (rect.top + cy * scaleYtoScreen + window.scrollY) + 'px';
+    tooltip.innerHTML = '';
+    const valSpan = document.createElement('span');
+    valSpan.className = 'tt-val';
+    valSpan.textContent = points[i][field] + (unit ? ' ' + unit : '');
+    const dateSpan = document.createElement('div');
+    dateSpan.textContent = fmtDate(points[i].t);
+    tooltip.appendChild(valSpan);
+    tooltip.appendChild(dateSpan);
+    tooltip.style.opacity = 1;
+  }
+  function onLeave() {
+    crosshair.style.opacity = 0;
+    hoverDot.style.opacity = 0;
+    tooltip.style.opacity = 0;
+  }
+  hit.addEventListener('pointermove', onMove);
+  hit.addEventListener('pointerleave', onLeave);
+  hit.addEventListener('focus', onMove);
+
+  container.innerHTML = '';
+  container.appendChild(svg);
+}
+
+load();
+</script>
+</body>
+</html>
