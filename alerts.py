@@ -37,12 +37,18 @@ def check_and_alert(rows: list[dict]):
     ntfy_topic = os.environ.get("NTFY_TOPIC")
 
     for row in rows:
-        if row["status"] != "RED":
-            continue
-
         name = row["name"] or "Pool"
-        title = f"{name}: pool status RED"
-        message = _format_alerts(row["alerts_json"]) or "Check the dashboard for details."
+        status = row["status"]
+        prev_status = row.get("prev_status")
+
+        if status == "RED":
+            title = f"{name}: pool status RED"
+            message = _format_alerts(row["alerts_json"]) or "Check the dashboard for details."
+        elif prev_status == "RED" and status != "RED":
+            title = f"{name}: back to normal"
+            message = f"Status is now {status}."
+        else:
+            continue
 
         _mac_notification(title, message)
         if ntfy_topic:

@@ -94,6 +94,12 @@ def store_snapshot(fetched_at: str, data: dict):
         conn.executescript(SCHEMA)
         rows = [parse_waterbody(fetched_at, wb) for wb in data.get("waterBodies", [])]
         for row in rows:
+            prev = conn.execute(
+                """SELECT status FROM snapshots WHERE water_body_id = ?
+                   ORDER BY fetched_at DESC LIMIT 1""",
+                (row["water_body_id"],),
+            ).fetchone()
+            row["prev_status"] = prev[0] if prev else None
             conn.execute(
                 """INSERT INTO snapshots (
                     fetched_at, water_body_id, name, status, water_temp, latest_measure_time,
