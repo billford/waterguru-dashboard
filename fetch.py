@@ -21,6 +21,7 @@ from pycognito.aws_srp import AWSSRP
 
 from db import store_snapshot
 from publish import export as export_history
+from alerts import check_and_alert
 
 REGION = "us-west-2"
 POOL_ID = "us-west-2_icsnuWQWw"
@@ -97,6 +98,7 @@ def main():
         print(f"OK - {row['name']}: status={row['status']} freeCl={row['free_cl']} ph={row['ph']} temp={row['water_temp']}")
 
     export_history()
+    check_and_alert(rows)
 
 
 if __name__ == "__main__":
