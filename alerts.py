@@ -38,21 +38,47 @@ def check_and_alert(rows: list[dict]):
 
     for row in rows:
         name = row["name"] or "Pool"
-        status = row["status"]
-        prev_status = row.get("prev_status")
 
-        if status == "RED":
-            title = f"{name}: pool status RED"
-            message = _format_alerts(row["alerts_json"]) or "Check the dashboard for details."
-        elif prev_status == "RED" and status != "RED":
-            title = f"{name}: back to normal"
-            message = f"Status is now {status}."
-        else:
-            continue
+        for title, message in _status_alerts(row, name) + _cassette_alerts(row, name):
+            _mac_notification(title, message)
+            if ntfy_topic:
+                _ntfy_push(ntfy_topic, title, message)
 
-        _mac_notification(title, message)
-        if ntfy_topic:
-            _ntfy_push(ntfy_topic, title, message)
+
+def _status_alerts(row: dict, name: str) -> list[tuple[str, str]]:
+    status = row["status"]
+    prev_status = row.get("prev_status")
+
+    if status == "RED":
+        title = f"{name}: pool status RED"
+        message = _format_alerts(row["alerts_json"]) or "Check the dashboard for details."
+        return [(title, message)]
+    if prev_status == "RED" and status != "RED":
+        return [(f"{name}: back to normal", f"Status is now {status}.")]
+    return []
+
+
+def _cassette_alerts(row: dict, name: str) -> list[tuple[str, str]]:
+    status = row.get("cassette_status")
+    prev_status = row.get("prev_cassette_status")
+    if status is None:
+        return []
+
+    # Fire once on the transition into RED (or urgent), not on every subsequent RED reading.
+    needs_replacement = status == "RED" or row.get("cassette_urgent")
+    was_flagged = prev_status == "RED"
+
+    if needs_replacement and not was_flagged:
+        pct = row.get("cassette_pct_left")
+        days = row.get("cassette_days_left") or ""
+        pct_text = f"{pct:.0f}% left" if pct is not None else ""
+        detail = ", ".join(x for x in [pct_text, days] if x)
+        return [(f"{name}: replace the cassette", detail or "Cassette is running low.")]
+
+    if prev_status == "RED" and status != "RED":
+        return [(f"{name}: cassette replaced", "Cassette level is back to normal.")]
+
+    return []
 
 
 def _format_alerts(alerts_json: str) -> str:
