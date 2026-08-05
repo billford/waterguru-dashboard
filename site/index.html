@@ -230,6 +230,48 @@
     color: var(--text-muted); font-size: 15px; line-height: 1; padding: 2px;
   }
   .swim-move-close:hover { color: var(--text-primary); }
+  .stale-badge {
+    display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; border-radius: 999px;
+    font-size: 12px; font-weight: 600; background: rgba(255,255,255,0.95); color: #8a6400;
+  }
+  .stale-badge.critical { color: #b91c1c; }
+
+  .cl-headline { font-size: 15px; line-height: 1.5; margin: 6px 0 12px; color: var(--text-primary); }
+  .cl-meta { font-size: 12px; color: var(--text-muted); margin-bottom: 12px; }
+  .cl-est { display: flex; gap: 18px; flex-wrap: wrap; margin-bottom: 12px; }
+  .cl-est div { font-size: 12px; color: var(--text-muted); }
+  .cl-est strong { display: block; font-size: 19px; font-weight: 600; color: var(--text-primary); margin-top: 2px; }
+  .confidence {
+    display: inline-block; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px;
+    background: var(--grid); color: var(--text-secondary);
+  }
+
+  .alert-advice {
+    font-size: 12px; color: var(--text-primary); margin-top: 5px; padding: 6px 9px;
+    background: color-mix(in srgb, var(--good) 9%, var(--surface-1));
+    border-radius: 8px; line-height: 1.45;
+  }
+  .stabilizer-note {
+    display: flex; gap: 9px; align-items: flex-start; margin: 0 0 12px; padding: 11px 13px;
+    background: color-mix(in srgb, var(--warning) 12%, var(--surface-1));
+    border: 1px solid var(--border); border-radius: 12px; font-size: 13px; line-height: 1.5;
+  }
+
+  .trust-banner {
+    display: flex; gap: 10px; align-items: flex-start; padding: 12px 14px; margin-bottom: 22px;
+    background: color-mix(in srgb, var(--serious) 14%, var(--surface-1));
+    border: 1px solid color-mix(in srgb, var(--serious) 40%, transparent);
+    border-radius: 12px; font-size: 13px; line-height: 1.5;
+  }
+  .trust-banner b { display: block; margin-bottom: 2px; }
+  .trust-banner .trust-how { color: var(--text-secondary); font-size: 12px; margin-top: 5px; }
+  .tile.untrusted { opacity: 0.62; }
+  .tile.untrusted .value::after { content: ' ?'; color: var(--serious); font-weight: 700; }
+
+  .anomaly-row { display: flex; gap: 10px; align-items: flex-start; font-size: 13px; padding: 8px 0; border-top: 1px solid var(--border); }
+  .anomaly-row:first-child { border-top: none; }
+  .anomaly-icon { flex: none; font-size: 14px; line-height: 1.3; }
+
   @media (max-width: 640px) {
     .forecast-row { grid-template-columns: repeat(5, minmax(0,1fr)); gap: 4px; }
     .forecast-day { padding: 6px 3px; }
@@ -247,6 +289,7 @@
       <div class="pool-title">
         <h1 id="poolName">Pool</h1>
         <span id="statusPill" class="status-pill GREEN"><span class="dot"></span><span id="statusText">—</span></span>
+        <span id="staleBadge" class="stale-badge" style="display:none;"></span>
       </div>
       <div class="pool-sub" id="lastUpdated">—</div>
     </header>
@@ -263,6 +306,17 @@
   </svg>
 </div>
 <div class="wrap">
+  <div class="trust-banner" id="trustBanner" style="display:none;">
+    <span>⚠️</span>
+    <div>
+      <b>These readings may not be reliable</b>
+      <span id="trustReason"></span>
+      <div class="trust-how">Excluded from the chlorine forecast and the trend summary. Confirm with a
+        test kit before adding chemicals — <code>annotate.py</code> can mark it trusted if it turns out
+        to be fine.</div>
+    </div>
+  </div>
+
   <div class="tiles" id="tiles"></div>
 
   <div class="card" id="summaryCard" style="display:none;">
@@ -281,6 +335,24 @@
     </div>
   </div>
 
+  <div class="card" id="panelCard" style="display:none;">
+    <h2>Full chemistry panel</h2>
+    <div class="card-sub" id="panelSub"></div>
+    <div class="tiles" id="panelTiles"></div>
+  </div>
+
+  <div class="card" id="clForecastCard" style="display:none;">
+    <h2>Chlorine outlook <a class="ai-info-link" href="about-ai.html#chlorine">📐 How this is calculated</a></h2>
+    <div class="card-sub" id="clForecastSub"></div>
+    <p class="cl-headline" id="clHeadline"></p>
+    <div class="stabilizer-note" id="stabilizerNote" style="display:none;">
+      <span>🧪</span><span id="stabilizerNoteText"></span>
+    </div>
+    <div class="cl-est" id="clEst"></div>
+    <div id="chart-cl_forecast"></div>
+    <div class="cl-meta" id="clMeta"></div>
+  </div>
+
   <div class="card">
     <h2>Free chlorine</h2>
     <div class="card-sub">ppm · target line shows configured target</div>
@@ -295,14 +367,26 @@
 
   <div class="card">
     <h2>Water temperature</h2>
-    <div class="card-sub">°F</div>
+    <div class="card-sub">°F · read on every fetch, unlike the chemistry</div>
     <div id="chart-water_temp"></div>
+  </div>
+
+  <div class="card">
+    <h2>Skimmer flow</h2>
+    <div class="card-sub">gpm · a sustained drop usually means a clogged basket or a struggling pump</div>
+    <div id="chart-skimmer_flow"></div>
   </div>
 
   <div class="card">
     <h2>Alerts</h2>
     <div class="card-sub" id="alertsSub"></div>
     <div class="alerts" id="alerts"></div>
+  </div>
+
+  <div class="card" id="sensorHealthCard" style="display:none;">
+    <h2>Sensor health</h2>
+    <div class="card-sub">checks on whether the readings themselves look trustworthy</div>
+    <div id="anomalies"></div>
   </div>
 
   <div class="card">
@@ -323,7 +407,7 @@
 </div>
 
 <script>
-const state = { data: null, rangeDays: 30, summary: null, weather: null, advice: null };
+const state = { data: null, rangeDays: 30, summary: null, weather: null, advice: null, chlorine: null, anomalies: null };
 
 async function loadOptional(path) {
   try {
@@ -342,10 +426,110 @@ async function load() {
   state.summary = await loadOptional('data/summary.json');
   state.weather = await loadOptional('data/weather.json');
   state.advice = await loadOptional('data/swim_advice.json');
+  state.chlorine = await loadOptional('data/chlorine_forecast.json');
+  state.anomalies = await loadOptional('data/anomalies.json');
   render();
   renderSummary();
   renderForecast();
+  renderChlorineForecast();
+  renderAnomalies();
   renderSwimMove();
+}
+
+function renderChlorineForecast() {
+  const card = document.getElementById('clForecastCard');
+  const f = state.chlorine;
+  if (!f || !f.available || !f.projection || !f.projection.length) { card.style.display = 'none'; return; }
+  card.style.display = '';
+
+  document.getElementById('clHeadline').textContent = f.headline;
+
+  const rate = f.rate || {};
+  document.getElementById('clForecastSub').textContent =
+    rate.source === 'fitted'
+      ? 'projected from this pool’s own measured burn rate and the NWS forecast'
+      : 'projected from a generic pool burn rate and the NWS forecast — not enough history yet to measure this pool’s own';
+
+  const stabNote = document.getElementById('stabilizerNote');
+  if (f.stabilizer_note) {
+    stabNote.style.display = '';
+    document.getElementById('stabilizerNoteText').textContent = f.stabilizer_note;
+  } else {
+    stabNote.style.display = 'none';
+  }
+
+  const est = document.getElementById('clEst');
+  est.innerHTML = '';
+  const cur = f.current || {};
+  const range = (cur.green_min != null && cur.green_max != null)
+    ? cur.green_min + '–' + cur.green_max + ' ppm' : (cur.target != null ? cur.target + ' ppm' : '—');
+  const cells = [
+    { label: 'Last measured', value: cur.free_cl != null ? cur.free_cl + ' ppm' : '—' },
+    { label: 'Estimated now', value: cur.estimated_now != null ? cur.estimated_now + ' ppm' : '—' },
+    { label: 'In-range band', value: range },
+    { label: 'Burn rate', value: rate.ppm_per_day != null ? rate.ppm_per_day + ' ppm/day' : '—' },
+  ];
+  if (f.below_target_on) cells.push({ label: 'Drops below range', value: prettyDate(f.below_target_on) });
+  for (const c of cells) {
+    const d = document.createElement('div');
+    d.textContent = c.label;
+    const s = document.createElement('strong');
+    s.textContent = c.value;
+    d.appendChild(s);
+    est.appendChild(d);
+  }
+
+  // The projection is a forecast, so it's drawn as its own series rather than
+  // spliced onto the measured chlorine chart - a modelled line and a measured
+  // line shouldn't look alike.
+  //
+  // Once the projection bottoms out at zero it stops saying anything, so the
+  // chart stops a day after that rather than trailing a flat line to the
+  // horizon. Dates get a midday time so they don't render as the previous day
+  // in timezones behind UTC.
+  let proj = f.projection;
+  const floorIdx = proj.findIndex(p => p.free_cl <= 0);
+  if (floorIdx > 0) proj = proj.slice(0, floorIdx + 1);
+  const points = proj.map(p => ({ t: p.date + 'T12:00:00', free_cl: p.free_cl }));
+  renderChart('chart-cl_forecast', points, 'free_cl', 'ppm', cur.target, 'var(--series-1)', { yFloor: 0 });
+
+  const meta = document.getElementById('clMeta');
+  const conf = document.createElement('span');
+  conf.className = 'confidence';
+  conf.textContent = (rate.confidence || 'low') + ' confidence';
+  meta.innerHTML = '';
+  meta.appendChild(conf);
+  const note = document.createElement('span');
+  note.textContent = ' · ' + (rate.segments || 0) + ' measured decline' + (rate.segments === 1 ? '' : 's') +
+    ' used · assumes no chlorine is added and ignores bather load';
+  meta.appendChild(note);
+}
+
+function renderAnomalies() {
+  const card = document.getElementById('sensorHealthCard');
+  const wbId = state.data && Object.keys(state.data.waterbodies)[0];
+  const findings = state.anomalies && wbId ? (state.anomalies.waterbodies || {})[wbId] : null;
+  if (!findings || !findings.length) { card.style.display = 'none'; return; }
+  card.style.display = '';
+
+  const wrap = document.getElementById('anomalies');
+  wrap.innerHTML = '';
+  for (const f of findings) {
+    const row = document.createElement('div');
+    row.className = 'anomaly-row';
+    const icon = document.createElement('span');
+    icon.className = 'anomaly-icon';
+    icon.textContent = f.kind === 'flatline' ? '📉' : f.kind === 'jump' ? '⚡' : '🕳️';
+    const text = document.createElement('div');
+    text.textContent = f.text;
+    row.appendChild(icon); row.appendChild(text);
+    wrap.appendChild(row);
+  }
+}
+
+function prettyDate(dateStr) {
+  const d = new Date(dateStr + 'T12:00:00');
+  return d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
 }
 
 function renderSummary() {
@@ -505,11 +689,49 @@ function currentWaterbody() {
   return wbs ? wbs[id] : null;
 }
 
-function filteredSeries(wb) {
-  if (!wb) return [];
-  if (state.rangeDays === 0) return wb.series;
+function inRange(points) {
+  if (!points) return [];
+  if (state.rangeDays === 0) return points;
   const cutoff = Date.now() - state.rangeDays * 86400000;
-  return wb.series.filter(p => new Date(p.t).getTime() >= cutoff);
+  return points.filter(p => new Date(p.t).getTime() >= cutoff);
+}
+
+function describeAge(hours) {
+  if (hours == null) return 'unknown';
+  if (hours < 1) return 'just now';
+  if (hours < 48) return Math.round(hours) + 'h ago';
+  return Math.round(hours / 24) + ' days ago';
+}
+
+function renderStaleBadge(freshness) {
+  const badge = document.getElementById('staleBadge');
+  if (!freshness) { badge.style.display = 'none'; return; }
+
+  // A pod that has just been set up spends 36 hours scanning for the pump
+  // before it schedules measurements. Silence during that window is correct
+  // behaviour, so it gets an explanation rather than a warning.
+  if (freshness.setting_up) {
+    badge.style.display = '';
+    badge.className = 'stale-badge';
+    badge.textContent = '⚙ Setting up — learning the pump schedule, first readings follow'
+      + (freshness.scheduled_measurement ? ' (~' + freshness.scheduled_measurement + ' daily)' : '');
+    return;
+  }
+
+  if (!freshness.fetch_stale && !freshness.measure_stale) {
+    badge.style.display = 'none';
+    return;
+  }
+  badge.style.display = '';
+  // A dead fetch is the more serious of the two: it means nothing on this page
+  // can be trusted to be current, not just the chemistry.
+  if (freshness.fetch_stale) {
+    badge.className = 'stale-badge critical';
+    badge.textContent = '⚠ Data pipeline stalled — last fetch ' + describeAge(freshness.fetch_age_hours);
+  } else {
+    badge.className = 'stale-badge';
+    badge.textContent = '⚠ Sensor quiet — last measurement ' + describeAge(freshness.measure_age_hours);
+  }
 }
 
 function render() {
@@ -522,42 +744,63 @@ function render() {
   document.getElementById('genFooter').textContent =
     'Data generated ' + fmtDate(state.data.generated_at) + ' · WaterGuru Sense, polled ~2x/day';
 
-  const series = filteredSeries(wb);
-  const latest = wb.series[wb.series.length - 1];
+  // Chemistry comes from the cassette (every day or two); everything else is
+  // read fresh on every fetch. They're charted off different clocks.
+  const series = inRange(wb.series);
+  const tempSeries = inRange(wb.temp_series || []);
+  const lastChem = wb.series[wb.series.length - 1];
+  const latest = wb.latest || lastChem || {};
 
   const pill = document.getElementById('statusPill');
-  const status = latest ? latest.status : 'GREEN';
+  const status = latest.status || 'GREEN';
   pill.className = 'status-pill ' + status;
   document.getElementById('statusText').textContent =
     status === 'GREEN' ? 'All normal' : status === 'YELLOW' ? 'Needs attention' : 'Action needed';
-  document.getElementById('lastUpdated').textContent = latest ? 'Last reading ' + fmtDate(latest.t) : '';
 
-  renderTiles(latest, wb.targets);
+  const freshness = wb.freshness || {};
+  document.getElementById('lastUpdated').textContent = lastChem
+    ? 'Last measurement ' + fmtDate(lastChem.t) + ' · checked ' + describeAge(freshness.fetch_age_hours)
+    : '';
+  renderStaleBadge(freshness);
+
+  renderTrustBanner(lastChem);
+  renderTiles(latest, lastChem, wb.targets, freshness);
+  renderPanel(lastChem, wb.targets, freshness);
   renderChart('chart-free_cl', series, 'free_cl', 'ppm', wb.targets.free_cl, 'var(--series-1)');
   renderChart('chart-ph', series, 'ph', '', wb.targets.ph, 'var(--series-2)');
-  renderChart('chart-water_temp', series, 'water_temp', '°F', null, 'var(--series-3)');
-  renderAlerts(latest);
+  renderChart('chart-water_temp', tempSeries, 'water_temp', '°F', null, 'var(--series-3)');
+  renderChart('chart-skimmer_flow', series, 'skimmer_flow', 'gpm', wb.targets.skimmer_flow, 'var(--series-2)');
+  renderAlerts(lastChem);
   renderTable(series);
 }
 
-function renderTiles(latest, targets) {
+function renderTiles(latest, lastChem, targets, freshness) {
   const tiles = document.getElementById('tiles');
   tiles.innerHTML = '';
-  if (!latest) { tiles.innerHTML = '<div class="empty-note">No readings yet.</div>'; return; }
+  if (!latest && !lastChem) { tiles.innerHTML = '<div class="empty-note">No readings yet.</div>'; return; }
+
+  const chem = lastChem || {};
+  // Chemistry tiles carry their own age, because a 3-day-old chlorine number
+  // sitting next to a live water temp reads as equally current otherwise.
+  const chemAge = freshness && freshness.measure_age_hours != null
+    ? describeAge(freshness.measure_age_hours) : null;
+  const withAge = base => [base, chemAge].filter(Boolean).join(' · ');
 
   const items = [
     { label: 'Water temp', value: latest.water_temp, unit: '°F', status: null },
-    { label: 'Free chlorine', value: latest.free_cl, unit: 'ppm', sub: targets.free_cl ? 'target ' + targets.free_cl : null, status: statusFor(latest, 'FREE_CL') },
-    { label: 'pH', value: latest.ph, unit: '', sub: targets.ph ? 'target ' + targets.ph : null, status: statusFor(latest, 'PH') },
-    { label: 'Skimmer flow', value: latest.skimmer_flow, unit: 'gpm', status: null },
+    { label: 'Free chlorine', value: chem.free_cl, unit: 'ppm', sub: withAge(targets.free_cl ? 'target ' + targets.free_cl : ''), status: statusFor(chem, 'FREE_CL'), fromChem: true },
+    { label: 'pH', value: chem.ph, unit: '', sub: withAge(targets.ph ? 'target ' + targets.ph : ''), status: statusFor(chem, 'PH'), fromChem: true },
+    { label: 'Skimmer flow', value: chem.skimmer_flow, unit: 'gpm', sub: chemAge, status: null, fromChem: true },
     { label: 'Cassette left', value: latest.cassette_pct_left, unit: '%', sub: latest.cassette_days_left, status: null },
     { label: 'Battery', value: latest.battery_pct_left, unit: '%', sub: latest.battery_time_left, status: null },
     { label: 'WiFi', value: latest.rssi, unit: 'dBm', sub: latest.rssi_desc, status: null },
   ];
 
+  const chemUntrusted = isUntrusted(chem);
   for (const it of items) {
     const el = document.createElement('div');
-    el.className = 'tile' + (it.status ? ' status-' + it.status : '');
+    el.className = 'tile' + (it.status ? ' status-' + it.status : '')
+      + (it.fromChem && chemUntrusted ? ' untrusted' : '');
     const val = (it.value === null || it.value === undefined) ? '—' : it.value;
     el.innerHTML =
       '<div class="label"></div><div class="value"></div><div class="sub"></div>';
@@ -567,6 +810,62 @@ function renderTiles(latest, targets) {
     if (it.unit) { const u = document.createElement('span'); u.className = 'unit'; u.textContent = it.unit; valEl.appendChild(u); }
     el.querySelector('.sub').textContent = it.sub || '';
     tiles.appendChild(el);
+  }
+}
+
+function isUntrusted(chem) {
+  return !!(chem && chem.trust && chem.trust.trusted === false);
+}
+
+// A reading taken from water that hasn't circulated describes the pipe, not the
+// pool - so it gets flagged loudly rather than sitting on the page looking like
+// every other number.
+function renderTrustBanner(lastChem) {
+  const banner = document.getElementById('trustBanner');
+  if (!isUntrusted(lastChem)) { banner.style.display = 'none'; return; }
+  banner.style.display = '';
+  const reasons = lastChem.trust.reasons || [];
+  document.getElementById('trustReason').textContent =
+    reasons[0] || 'This measurement was marked unreliable.';
+}
+
+// Alkalinity, calcium, stabilizer and hardness are measured on a ~monthly
+// cycle, not the daily one - so they get their own card with their own
+// timestamp rather than sitting in the top row looking equally fresh.
+const PANEL_ITEMS = [
+  { key: 'ta',  source: 'TA',  label: 'Total alkalinity', unit: 'ppm' },
+  { key: 'ch',  source: 'CH',  label: 'Calcium hardness', unit: 'ppm' },
+  { key: 'cya', source: 'CYA', label: 'Stabilizer (CYA)', unit: 'ppm' },
+  { key: 'th',  source: 'TH',  label: 'Total hardness',   unit: 'ppm' },
+];
+
+function renderPanel(lastChem, targets, freshness) {
+  const card = document.getElementById('panelCard');
+  const chem = lastChem || {};
+  const present = PANEL_ITEMS.filter(it => chem[it.key] !== null && chem[it.key] !== undefined);
+  if (!present.length) { card.style.display = 'none'; return; }
+  card.style.display = '';
+
+  const when = chem.panel_measure_time ? fmtDate(chem.panel_measure_time) : null;
+  document.getElementById('panelSub').textContent =
+    'measured about monthly' + (when ? ' · last measured ' + when : '');
+
+  const wrap = document.getElementById('panelTiles');
+  wrap.innerHTML = '';
+  for (const it of present) {
+    const el = document.createElement('div');
+    const status = statusFor(chem, it.source);
+    el.className = 'tile' + (status ? ' status-' + status : '') + (isUntrusted(chem) ? ' untrusted' : '');
+    el.innerHTML = '<div class="label"></div><div class="value"></div><div class="sub"></div>';
+    el.querySelector('.label').textContent = it.label;
+    const valEl = el.querySelector('.value');
+    valEl.textContent = chem[it.key];
+    const u = document.createElement('span');
+    u.className = 'unit';
+    u.textContent = it.unit;
+    valEl.appendChild(u);
+    el.querySelector('.sub').textContent = targets[it.key] != null ? 'target ' + targets[it.key] : '';
+    wrap.appendChild(el);
   }
 }
 
@@ -598,6 +897,14 @@ function renderAlerts(latest) {
     m.className = 'alert-meta';
     m.textContent = a.condition || '';
     text.appendChild(t); text.appendChild(m);
+    // WaterGuru sizes the dose for this pool's volume - that's the actionable
+    // half of the alert, so it goes on the page rather than only in the push.
+    if (a.advice) {
+      const adv = document.createElement('div');
+      adv.className = 'alert-advice';
+      adv.textContent = '→ ' + a.advice;
+      text.appendChild(adv);
+    }
     row.appendChild(icon); row.appendChild(text);
     wrap.appendChild(row);
   }
@@ -635,7 +942,7 @@ document.getElementById('rangeFilters').addEventListener('click', (e) => {
 const PAD = { top: 16, right: 16, bottom: 24, left: 40 };
 const W = 800, H = 220;
 
-function renderChart(containerId, series, field, unit, target, colorVar) {
+function renderChart(containerId, series, field, unit, target, colorVar, opts) {
   const container = document.getElementById(containerId);
   const points = series.filter(p => p[field] !== null && p[field] !== undefined);
   if (points.length === 0) {
@@ -649,6 +956,9 @@ function renderChart(containerId, series, field, unit, target, colorVar) {
   if (min === max) { min -= 1; max += 1; }
   const pad = (max - min) * 0.15 || 1;
   min -= pad; max += pad;
+  // Some quantities have a hard floor - padding chlorine down to -0.8 ppm makes
+  // the axis claim something impossible.
+  if (opts && opts.yFloor !== undefined) min = Math.max(min, opts.yFloor);
 
   const times = points.map(p => new Date(p.t).getTime());
   const tMin = Math.min(...times), tMax = Math.max(...times);

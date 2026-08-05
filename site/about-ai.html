@@ -135,7 +135,9 @@
     <h1>How the AI on this dashboard works</h1>
     <p>Two features here are LLM-generated: the trend summary and the swim/heater advisor. Both run on a
       local model on the same Mac that fetches the pool data — here's exactly what each one sees, what
-      model answers it, and what happens if the model isn't available.</p>
+      model answers it, and what happens if the model isn't available. The
+      <a href="#chlorine">chlorine outlook</a> is documented here too, precisely because it
+      <i>isn't</i> AI and shouldn't be mistaken for it.</p>
   </div>
   <svg class="hero-wave" viewBox="0 0 1440 80" preserveAspectRatio="none" aria-hidden="true">
     <path d="M0,40 C240,90 480,0 720,30 C960,60 1200,10 1440,40 L1440,80 L0,80 Z"></path>
@@ -233,12 +235,54 @@
       smaller, much faster <code>llama3.2:3b</code> handles it fine.</p>
   </div>
 
+  <div class="card" id="chlorine">
+    <h2>Chlorine outlook <span class="tag">no AI involved</span></h2>
+    <p class="muted">The "estimated now" number and the projection chart. This one is worth being explicit
+      about, because it sits next to two features that <i>are</i> LLM-generated: it's ordinary arithmetic,
+      fully deterministic, and would produce the same answer with Ollama uninstalled.</p>
+    <div class="flow-step">
+      <div class="flow-num">1</div>
+      <div class="flow-text"><b>Measure the burn rate:</b> between consecutive measurements, chlorine only
+        falls on its own — so any <i>increase</i> means someone added some, and those stretches are thrown
+        out rather than averaged in. What's left gives a ppm-per-day loss rate, and the median is taken so
+        one odd reading can't drag the whole model.</div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-num">2</div>
+      <div class="flow-text"><b>Scale it for heat and stabilizer:</b> chlorine burns faster in hot, sunny
+        weather, and far faster still without cyanuric acid to shield it from UV. Each rate is normalized
+        against both before averaging, then re-scaled per day using the National Weather Service forecast
+        and the current stabilizer level. Normalizing first is what stops the model double-counting — a rate
+        measured during a hot, unstabilized week already has that fast burn baked into it.</div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-num">3</div>
+      <div class="flow-text"><b>Walk it forward:</b> starting from the last real measurement — often a day
+        or two old, since the cassette measures roughly daily — chlorine is stepped forward a day at a time
+        to find when it returns to range or drops through the target. Days already elapsed are used for the
+        arithmetic but not shown; projecting into the past isn't a forecast.</div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-num">4</div>
+      <div class="flow-text"><b>Fallback:</b> with fewer than three usable declines on record it uses a
+        generic outdoor-pool loss rate instead, and the card says so and marks itself low-confidence rather
+        than quietly presenting a guess as a measurement.</div>
+    </div>
+    <p><b>"In range" means what the device means.</b> WaterGuru ships the band it actually judges chlorine
+      against — green from 1.6 to 5.4 ppm around a 3.0 target — so that's what the card uses, rather than a
+      tolerance invented at this end.</p>
+    <p><b>What it deliberately doesn't model:</b> UV index, bather load, or anything else this sensor
+      doesn't report. Both the heat and stabilizer adjustments are coarse approximations. It's a trend
+      projection to tell you whether to reach for the chlorine this week — not a chemistry calculator.</p>
+  </div>
+
   <div class="card">
     <h2>Nothing here is a substitute for judgment</h2>
     <p>These are convenience reads, not safety systems. The chemistry alerts (RED/YELLOW/GREEN, cassette
       replacement) are WaterGuru's own thresholds, not AI-generated — the LLMs only touch the trend
-      summary and the swim/heater advice. Treat both as a second opinion worth a glance, not a
-      replacement for checking the water yourself.</p>
+      summary and the swim/heater advice. The chlorine outlook and the sensor-health checks are plain
+      arithmetic. Treat all of them as a second opinion worth a glance, not a replacement for checking the
+      water yourself.</p>
   </div>
 
   <footer>
