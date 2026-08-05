@@ -1,0 +1,9 @@
+{
+  "measurements": {
+    "2026-08-05T21:10": {
+      "note": "Pump had failed with zero flow; measured minutes after circulation was restored. Hand test with a kit came back in range across the board.",
+      "recorded_at": "2026-08-05T22:07:46.639500+00:00",
+      "verdict": "suspect"
+    }
+  }
+}

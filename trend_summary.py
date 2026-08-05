@@ -3,31 +3,51 @@ no data leaves the machine. Falls back to a rule-based summary if Ollama isn't
 reachable, so the dashboard never just breaks.
 """
 import json
-import sqlite3
 from pathlib import Path
 
 import requests
 
-from db import DB_PATH
+import trust
+from db import connect, dedupe_by_measurement
 
 OLLAMA_URL = "http://localhost:11434/api/generate"
 MODEL = "llama3.2:3b"
 LOOKBACK_DAYS = 14
 
+# Below this many distinct measurements, the model is not asked at all.
+#
+# The prompt demands a verdict on whether things are trending up, down, or
+# steady, and a small model handed one or two readings will manufacture one to
+# comply - observed inventing a chlorine drop from 9.8 to 3.5 ppm and a pH shift
+# to 6.9 from a single 9.8/7.3 reading. A trend needs points to draw a line
+# through, so with fewer than three the rule-based sentence says plainly that
+# there isn't enough history yet.
+MIN_READINGS_FOR_LLM = 3
+
 
 def _recent_rows(water_body_id: str) -> list[dict]:
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+    """Distinct chemistry measurements from the lookback window, oldest first.
+
+    Deduped on measurement time: fetching twice a day against a cassette that
+    measures once a day would otherwise feed the model the same reading twice
+    and make a flat stretch look like twice as much corroborating evidence.
+    """
+    conn = connect()
     rows = conn.execute(
-        """SELECT fetched_at, status, water_temp, free_cl, ph, skimmer_flow,
-                  cassette_pct_left, battery_pct_left
+        """SELECT fetched_at, latest_measure_time, status, water_temp, free_cl, ph,
+                  skimmer_flow, cassette_pct_left, battery_pct_left, alerts_json
            FROM snapshots
            WHERE water_body_id = ? AND fetched_at >= datetime('now', ?)
            ORDER BY fetched_at""",
         (water_body_id, f"-{LOOKBACK_DAYS} days"),
     ).fetchall()
     conn.close()
-    return [dict(r) for r in rows]
+
+    rows = [dict(r) for r in rows]
+    # Readings taken from water that hasn't circulated get left out - describing
+    # a trend through a bad sample is worse than reporting a shorter history.
+    untrusted = trust.untrusted_keys(rows)
+    return trust.filter_trusted(dedupe_by_measurement(rows), untrusted)
 
 
 def _trend_word(first: float, last: float, tolerance: float) -> str:
@@ -38,8 +58,20 @@ def _trend_word(first: float, last: float, tolerance: float) -> str:
 
 
 def _rule_based_summary(rows: list[dict]) -> str:
-    if len(rows) < 2:
-        return "Not enough history yet to call a trend - check back after a few more readings."
+    if not rows:
+        return "No readings yet - the first measurement will show up here."
+    if len(rows) < MIN_READINGS_FOR_LLM:
+        latest = rows[-1]
+        current = ", ".join(
+            f"{label} {latest[field]}"
+            for label, field in (("free chlorine", "free_cl"), ("pH", "ph"), ("water temp", "water_temp"))
+            if latest.get(field) is not None
+        )
+        reading_word = "reading" if len(rows) == 1 else "readings"
+        return (
+            f"Currently {current}. Only {len(rows)} distinct {reading_word} so far - "
+            "not enough history to call a trend yet."
+        )
 
     first, last = rows[0], rows[-1]
     bits = []
@@ -57,13 +89,15 @@ def _rule_based_summary(rows: list[dict]) -> str:
 
 def _llm_summary(rows: list[dict], name: str) -> str | None:
     lines = [
-        f"{r['fetched_at'][:16]}  status={r['status']}  free_cl={r['free_cl']}  ph={r['ph']}  "
-        f"temp={r['water_temp']}F  flow={r['skimmer_flow']}"
+        f"{(r.get('latest_measure_time') or r['fetched_at'])[:16]}  status={r['status']}  "
+        f"free_cl={r['free_cl']}  ph={r['ph']}  temp={r['water_temp']}F  flow={r['skimmer_flow']}"
         for r in rows
     ]
     prompt = (
         f"You are summarizing recent water-quality readings for a residential pool named '{name}' "
-        f"for its owner. Here is the reading history, oldest first:\n\n"
+        f"for its owner. Each line is one distinct measurement by the sensor, which measures roughly "
+        f"once a day - so a short list covers a normal week, not a gap in monitoring. "
+        f"Here is the reading history, oldest first:\n\n"
         + "\n".join(lines)
         + "\n\nIn 2-3 short sentences, say whether free chlorine, pH, and water temp are trending up, "
         "down, or holding steady, and whether things look solid or need attention. Be direct and "
@@ -83,7 +117,7 @@ def _llm_summary(rows: list[dict], name: str) -> str | None:
 
 def summarize(water_body_id: str, name: str) -> dict:
     rows = _recent_rows(water_body_id)
-    llm_text = _llm_summary(rows, name) if rows else None
+    llm_text = _llm_summary(rows, name) if len(rows) >= MIN_READINGS_FOR_LLM else None
     return {
         "text": llm_text or _rule_based_summary(rows),
         "source": "llm" if llm_text else "rule_based",
