@@ -143,6 +143,15 @@ def main():
     LATEST_FILE.write_text(json.dumps(record, indent=2))
 
     rows = store_snapshot(record["fetched_at"], data)
+    if not rows:
+        # A valid envelope with no water bodies used to look exactly like a
+        # successful run: nothing stored, nothing alerted, exit 0, and the deploy
+        # publishing yesterday's numbers. Exit non-zero so run_and_publish.sh
+        # raises the fetch-failure alert.
+        print("Fetch returned no water bodies - nothing measured, treating as a failure.",
+              file=sys.stderr)
+        sys.exit(1)
+
     for row in rows:
         print(f"OK - {row['name']}: status={row['status']} freeCl={row['free_cl']} ph={row['ph']} temp={row['water_temp']}")
 

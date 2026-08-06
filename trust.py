@@ -38,6 +38,13 @@ ANNOTATIONS_PATH = HERE / "annotations.json"
 # sensor has no particular reason to resemble the rest of the pool.
 STAGNANT_HOURS = 24
 
+# Verdicts an annotation may declare. Anything else is not a verdict.
+VALID_VERDICTS = {"suspect", "trusted"}
+
+# "2026-08-05T21:10" - enough to identify one measurement. Shorter keys would
+# silently apply one verdict to a whole day, month or year.
+MIN_ANNOTATION_KEY_LENGTH = len("2026-08-05T21:10")
+
 _FLOW_OUTAGE = re.compile(r"No flow sensor report:\s*(\d+)\s*hours?", re.IGNORECASE)
 
 
@@ -120,10 +127,18 @@ def find_annotation(measure_time: str, annotations: dict) -> dict | None:
     if not measure_time:
         return None
     normalized = str(measure_time).replace("Z", "")
-    for key, annotation in annotations.items():
-        if normalized.startswith(str(key).replace("Z", "")):
-            return annotation
-    return None
+    # Longest match wins, and a key must be specific enough to identify a single
+    # measurement. Unbounded prefixes meant the key "2" matched every reading
+    # ever taken, and sort order let a vague old key permanently shadow a later,
+    # more specific one.
+    matches = [
+        (key, annotation) for key, annotation in annotations.items()
+        if len(str(key)) >= MIN_ANNOTATION_KEY_LENGTH
+        and normalized.startswith(str(key).replace("Z", ""))
+    ]
+    if not matches:
+        return None
+    return max(matches, key=lambda kv: len(str(kv[0])))[1]
 
 
 # ---- automatic signals ----
@@ -183,15 +198,24 @@ def evaluate(rows: list[dict], annotations: dict = None) -> dict:
         }
 
         manual = find_annotation(key, annotations)
-        if manual:
-            trusted = manual.get("verdict") != "suspect"
-            verdict = {
-                "trusted": trusted,
-                "reasons": ([manual["note"]] if manual.get("note") else
-                            ["Marked suspect by hand." if not trusted else "Marked trusted by hand."]),
-                "source": "manual",
-                "note": manual.get("note"),
-            }
+        # Only an explicit, recognised verdict overrides the automatic one.
+        # Previously ANY annotation marked the reading trusted and discarded the
+        # auto reasons - so `{"note": "topped up"}`, a hand-edit that meant to
+        # say nothing about trust, silently un-flagged a stagnant-water reading.
+        declared = str((manual or {}).get("verdict") or "").strip().lower()
+        if declared in VALID_VERDICTS:
+            trusted = declared == "trusted"
+            note = manual.get("note")
+            reasons = [note] if note else [f"Marked {declared} by hand."]
+            # Keep the automatic reason visible when a hand verdict overrides it,
+            # so the dashboard can say *what* was overridden.
+            if trusted and verdict["reasons"]:
+                reasons += [f"(overrides: {r})" for r in verdict["reasons"]]
+            verdict = {"trusted": trusted, "reasons": reasons, "source": "manual", "note": note}
+        elif manual:
+            # An annotation that says nothing about trust still contributes its
+            # note, but must not change the verdict.
+            verdict = {**verdict, "note": manual.get("note")}
         verdicts[key] = verdict
 
     return verdicts

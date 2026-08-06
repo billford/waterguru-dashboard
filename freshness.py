@@ -116,7 +116,12 @@ def freshness_for(rows: list[dict], now: datetime = None) -> dict:
         "fetch_stale": fetch_age is None or fetch_age > FETCH_STALE_HOURS,
         # A pod still learning the pump schedule isn't stale, it's calibrating.
         "measure_stale": not setting_up and (measure_age is None or measure_age > MEASURE_STALE_HOURS),
-        "panel_stale": panel_age is not None and panel_age > PANEL_STALE_DAYS * 24,
+        # A panel that has never reported is unknown, not fresh. The daily
+        # equivalent above gets this right; this one returned False forever,
+        # so a cassette whose panel pads never fired read as perfectly current.
+        "panel_stale": not setting_up and (
+            panel_age is None or panel_age > PANEL_STALE_DAYS * 24
+        ),
         "setting_up": setting_up,
         "scheduled_measurement": scheduled_measurement(newest),
         "fetch_stale_after_hours": FETCH_STALE_HOURS,

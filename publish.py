@@ -14,6 +14,7 @@ several distinct readings.
 """
 import json
 import sqlite3
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -85,20 +86,28 @@ def rows_for_export(conn: sqlite3.Connection, days: int = DAYS_KEPT) -> list[dic
     return [dict(r) for r in cur.fetchall()]
 
 
-def _controller_volume() -> float | None:
-    """The pool controller's volume, which is the figure we believe."""
+def _controller_volume(conn=None) -> float | None:
+    """The pool controller's volume, which is the figure we believe.
+
+    Takes a connection rather than opening one: reaching into DB_PATH from what
+    looks like a pure function meant `build_payload` scaled doses against the
+    production controller volume no matter which database the rows came from.
+    """
+    if conn is None:
+        return None
     try:
-        conn = connect()
         row = conn.execute(
             "SELECT volume_gallons FROM system_snapshots ORDER BY read_at DESC LIMIT 1"
         ).fetchone()
-        conn.close()
         return row["volume_gallons"] if row else None
-    except Exception:
+    except sqlite3.Error as e:
+        # Narrow, and loud: silently returning None here drops the dose
+        # correction with no trace, and that is the costliest thing to get wrong.
+        print(f"could not read controller volume: {e}", file=sys.stderr)
         return None
 
 
-def build_payload(rows: list[dict], now: datetime = None) -> dict:
+def build_payload(rows: list[dict], now: datetime = None, conn=None) -> dict:
     now = now or datetime.now(timezone.utc)
 
     by_wb: dict[str, list[dict]] = {}
@@ -111,7 +120,7 @@ def build_payload(rows: list[dict], now: datetime = None) -> dict:
         # Trust is judged on the raw snapshots: the one *preceding* a
         # measurement carries the evidence about the conditions it was taken in.
         verdicts = trust.evaluate(wb_rows)
-        actual_gallons = _controller_volume()
+        actual_gallons = _controller_volume(conn)
         waterbodies[wb_id] = {
             "name": newest["name"],
             "targets": {
@@ -145,10 +154,9 @@ def export(out_path: Path = None):
     conn = connect()
     try:
         rows = rows_for_export(conn)
+        payload = build_payload(rows, conn=conn)
     finally:
         conn.close()
-
-    payload = build_payload(rows)
     path = out_path or OUT_FILE
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2))

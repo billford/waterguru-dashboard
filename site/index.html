@@ -836,13 +836,14 @@ function renderTiles(latest, lastChem, targets, freshness) {
   // sitting next to a live water temp reads as equally current otherwise.
   const chemAge = freshness && freshness.measure_age_hours != null
     ? describeAge(freshness.measure_age_hours) : null;
-  const withAge = base => [base, chemAge].filter(Boolean).join(' · ');
+  const withAge = (base, value) =>
+    [base, (value === null || value === undefined) ? null : chemAge].filter(Boolean).join(' · ');
 
   const items = [
     { label: 'Water temp', value: latest.water_temp, unit: '°F', status: null },
-    { label: 'Free chlorine', value: chem.free_cl, unit: 'ppm', sub: withAge(targets.free_cl ? 'target ' + targets.free_cl : ''), status: statusFor(chem, 'FREE_CL'), fromChem: true },
-    { label: 'pH', value: chem.ph, unit: '', sub: withAge(targets.ph ? 'target ' + targets.ph : ''), status: statusFor(chem, 'PH'), fromChem: true },
-    { label: 'Skimmer flow', value: chem.skimmer_flow, unit: 'gpm', sub: chemAge, status: null, fromChem: true },
+    { label: 'Free chlorine', value: chem.free_cl, unit: 'ppm', sub: withAge(targets.free_cl ? 'target ' + targets.free_cl : '', chem.free_cl), status: statusFor(chem, 'FREE_CL', chem.free_cl), fromChem: true },
+    { label: 'pH', value: chem.ph, unit: '', sub: withAge(targets.ph ? 'target ' + targets.ph : '', chem.ph), status: statusFor(chem, 'PH', chem.ph), fromChem: true },
+    { label: 'Skimmer flow', value: chem.skimmer_flow, unit: 'gpm', sub: chem.skimmer_flow == null ? null : chemAge, status: null, fromChem: true },
     { label: 'Cassette left', value: latest.cassette_pct_left, unit: '%', sub: latest.cassette_days_left, status: null },
     { label: 'Battery', value: latest.battery_pct_left, unit: '%', sub: latest.battery_time_left, status: null },
     { label: 'WiFi', value: latest.rssi, unit: 'dBm', sub: latest.rssi_desc, status: null },
@@ -999,7 +1000,7 @@ function renderPanel(lastChem, targets, freshness) {
   wrap.innerHTML = '';
   for (const it of present) {
     const el = document.createElement('div');
-    const status = statusFor(chem, it.source);
+    const status = statusFor(chem, it.source, chem[it.key]);
     el.className = 'tile' + (status ? ' status-' + status : '') + (isUntrusted(chem) ? ' untrusted' : '');
     el.innerHTML = '<div class="label"></div><div class="value"></div><div class="sub"></div>';
     el.querySelector('.label').textContent = it.label;
@@ -1014,7 +1015,11 @@ function renderPanel(lastChem, targets, freshness) {
   }
 }
 
-function statusFor(point, source) {
+// Absence of an alert means "nothing wrong with this reading" - but only if
+// there IS a reading. Returning GREEN unconditionally rendered a missing value
+// as a fresh, in-range one, complete with the green stripe.
+function statusFor(point, source, value) {
+  if (value === null || value === undefined) return null;
   const a = (point.alerts || []).find(x => x.source === source);
   return a ? a.status : 'GREEN';
 }

@@ -355,18 +355,23 @@ def _format_alerts(alerts_json: str, dose_factor: float = None) -> str:
     return "; ".join(lines)
 
 
-def notify_fetch_failure(detail: str = ""):
-    """Called by run_and_publish.sh when the fetch itself dies.
+def notify_step_failure(label: str = "Pool data fetch", detail: str = ""):
+    """Called by run_and_publish.sh when a pipeline step dies.
 
-    This is the one alert that can't come from the data, because the failure is
-    that there is no data. Without it a broken pipeline looks exactly like a
-    calm pool.
+    These are the alerts that can't come from the data, because the failure is
+    that there is no data - or that it never reached the dashboard. Without them
+    a broken pipeline looks exactly like a calm pool.
     """
     send(
-        "Pool data fetch failed",
-        (detail or "fetch.py exited non-zero.") + " The dashboard is now serving stale data.",
+        f"{label} failed",
+        (detail or "exited non-zero.") + " The dashboard is now serving stale data.",
         tags="rotating_light",
     )
+
+
+# Kept so an older run_and_publish.sh still works if it isn't updated together.
+def notify_fetch_failure(detail: str = ""):
+    notify_step_failure("Pool data fetch", detail)
 
 
 def send_test() -> bool:
@@ -409,11 +414,13 @@ def send_test() -> bool:
 if __name__ == "__main__":
     # Usage: python alerts.py fetch-failed "<detail>" | python alerts.py test
     load_dotenv()
-    if len(sys.argv) > 1 and sys.argv[1] == "fetch-failed":
+    if len(sys.argv) > 1 and sys.argv[1] == "step-failed":
+        notify_step_failure(*sys.argv[2:4])
+    elif len(sys.argv) > 1 and sys.argv[1] == "fetch-failed":
         notify_fetch_failure(sys.argv[2] if len(sys.argv) > 2 else "")
     elif len(sys.argv) > 1 and sys.argv[1] == "test":
         sys.exit(0 if send_test() else 1)
     else:
         print(__doc__)
         print("Commands:\n  test          send a test alert to every channel"
-              "\n  fetch-failed  report a failed fetch (used by run_and_publish.sh)")
+              "\n  step-failed <label> <detail>   report a failed pipeline step")
