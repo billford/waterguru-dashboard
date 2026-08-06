@@ -702,6 +702,31 @@ Comparisons are made within an RPM bucket, since comparing raw flow across
 speeds would read every schedule change as a fault, and both sides use medians
 because a single low sample means nothing.
 
+### Detecting additions nobody logged
+
+The equipment log records what the controller did. The event log records what
+you said you did. `interventions.py` covers the gap between them: chemistry that
+moved in a direction the pool **cannot move on its own**, which means a person
+did it.
+
+That gap matters for a pool under service. A visit that adds fifty pounds of
+salt and a jug of chlorine leaves no note, no receipt in the controller, and no
+entry anywhere — but it does leave a signature in the numbers.
+
+- **Salt** is conservative: it falls only through dilution and rises only
+  through addition. Evaporation concentrates it too, but slowly, so a *step*
+  over hours is a bag of salt while a drift over days isn't. A 320 ppm step on
+  15,000 gallons is one 40 lb bag, and the detector says so.
+- **Chlorine** is bounded by what the cell could have produced. The comparison
+  uses the cell at **full** output with nothing lost — deliberately generous, so
+  only a rise it could not possibly account for is reported.
+
+It reports what the numbers show and converts to familiar units. It does not
+attribute motive or judge whether an addition was warranted: a visit adding salt
+to a pool that needed salt looks identical to one adding salt to a pool that
+didn't, and only the reading it responded to tells you which. That's a judgement
+for the person reading the dashboard, not the dashboard.
+
 ### Inferring top-ups from salt
 
 Salt is conservative — it doesn't evaporate, degrade in sunlight, or get

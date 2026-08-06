@@ -335,6 +335,13 @@
     </div>
   </div>
 
+  <div class="card" id="interventionCard" style="display:none;">
+    <h2>Unlogged additions</h2>
+    <div class="card-sub">chemistry that moved in a direction the pool can't move on its own</div>
+    <div id="interventionSummary" class="cl-headline"></div>
+    <div id="interventionList"></div>
+  </div>
+
   <div class="card" id="logCard" style="display:none;">
     <h2>Pool log</h2>
     <div class="card-sub">equipment changes detected automatically, plus anything noted by hand</div>
@@ -471,6 +478,7 @@ async function load() {
     ['chlorine outlook', renderChlorineForecast],
     ['sensor health', renderAnomalies],
     ['pool system', renderSystem],
+    ['unlogged additions', renderInterventions],
     ['pool log', renderPoolLog],
     ['swim tip', renderSwimMove],
   ]) {
@@ -1005,6 +1013,39 @@ function renderSystem() {
     document.getElementById('systemNoteText').textContent = combined;
   } else {
     note.style.display = 'none';
+  }
+}
+
+// Salt and chlorine can only rise if a person raised them. Reported as fact and
+// converted to familiar units - whether an addition was warranted is a question
+// only the reading it responded to can answer, so the page doesn't editorialise.
+function renderInterventions() {
+  const card = document.getElementById('interventionCard');
+  const data = state.system && state.system.interventions;
+  const events = data ? [...(data.salt || []), ...(data.chlorine || [])] : [];
+  if (!events.length) { card.style.display = 'none'; return; }
+  card.style.display = '';
+
+  document.getElementById('interventionSummary').textContent = data.summary || '';
+
+  events.sort((a, b) => (b.at || '').localeCompare(a.at || ''));
+  const wrap = document.getElementById('interventionList');
+  wrap.innerHTML = '';
+  for (const e of events) {
+    const row = document.createElement('div');
+    row.className = 'anomaly-row';
+    const icon = document.createElement('span');
+    icon.className = 'anomaly-icon';
+    icon.textContent = e.kind === 'salt_added' ? '\ud83e\uddc2' : '\ud83e\uddea';
+    const body = document.createElement('div');
+    const when = document.createElement('div');
+    when.className = 'alert-meta';
+    when.textContent = fmtDate(e.at);
+    const text = document.createElement('div');
+    text.textContent = e.text;
+    body.appendChild(when); body.appendChild(text);
+    row.appendChild(icon); row.appendChild(body);
+    wrap.appendChild(row);
   }
 }
 

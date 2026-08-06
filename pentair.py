@@ -410,6 +410,51 @@ def check_dilution(conn, state: dict) -> dict | None:
     return found
 
 
+def _interventions(state: dict, days: int = 30) -> dict:
+    """Chemistry that moved in a direction the pool cannot move on its own.
+
+    Kept factual: it reports what the numbers show and converts to familiar
+    units. Whether an addition was warranted is a question only the reading it
+    was responding to can answer.
+    """
+    import interventions
+    import saltcell
+    from db import connect, dedupe_by_measurement
+
+    conn = connect()
+    try:
+        system_rows = [
+            dict(r) for r in conn.execute(
+                "SELECT read_at, salt_ppm FROM system_snapshots"
+                " WHERE read_at >= datetime('now', ?) ORDER BY read_at", (f"-{days} days",)
+            ).fetchall()
+        ]
+        chem_rows = [
+            dict(r) for r in conn.execute(
+                "SELECT fetched_at, latest_measure_time, free_cl FROM snapshots"
+                " WHERE fetched_at >= datetime('now', ?) ORDER BY fetched_at", (f"-{days} days",)
+            ).fetchall()
+        ]
+    finally:
+        conn.close()
+
+    gallons = state.get("volume_gallons")
+    # The generous bound: what the cell could add at *full* output, so only a
+    # rise it could not possibly account for is reported.
+    max_generation = saltcell.generation_ppm_per_day(gallons, 100.0, 1.0) or 0.0
+
+    salt = interventions.detect_salt_addition(system_rows, gallons)
+    chlorine = interventions.detect_chlorine_addition(
+        dedupe_by_measurement(chem_rows), max_generation, gallons)
+
+    return {
+        "salt": salt,
+        "chlorine": chlorine,
+        "summary": interventions.summarize(salt, chlorine, days),
+        "window_days": days,
+    }
+
+
 def export_system(out_path, host: str = None, lookback: int = 200) -> dict | None:
     """Reads, stores and publishes the system snapshot for the dashboard."""
     from db import connect
@@ -456,6 +501,7 @@ def export_system(out_path, host: str = None, lookback: int = 200) -> dict | Non
 
     import restriction
     payload["restriction"] = restriction.status(history)
+    payload["interventions"] = _interventions(state)
 
     # Cross-check the two systems' idea of pool volume, since WaterGuru's dose
     # recommendations are computed from its own figure.
