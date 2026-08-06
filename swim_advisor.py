@@ -31,19 +31,49 @@ def _latest_water_temp(water_body_id: str):
     return row[0] if row else None
 
 
-def _build_prompt(days: list[dict], water_temp, today: datetime) -> str:
+def _heater_facts(system: dict) -> str:
+    """What the controller actually says about the heater.
+
+    Without this the model invented plausible-sounding advice about a setpoint
+    it had never seen - it could say "consider adjusting the setpoint" but never
+    "raise it from 81 to 84", which is the only form that's actionable.
+    """
+    if not system:
+        return ""
+
+    setpoint = system.get("setpoint")
+    if setpoint is None:
+        return ""
+
+    state = (
+        "currently running to reach it" if system.get("heater_calling")
+        else "idle, because the water is already at or above it"
+        if system.get("heater_enabled") else "switched off"
+    )
+    ceiling = system.get("max_setpoint")
+    ceiling_text = f" The maximum it can be set to is {ceiling:g}F." if ceiling else ""
+    return (
+        f"\nThe heater is a gas heater with its setpoint currently at {setpoint:g}F, and is "
+        f"{state}.{ceiling_text} Recommend a specific setpoint in degrees rather than a vague "
+        f"adjustment, and say which day to change it on. If {setpoint:g}F is already right for "
+        "the week ahead, say so plainly and recommend leaving it alone."
+    )
+
+
+def _build_prompt(days: list[dict], water_temp, today: datetime, system: dict = None) -> str:
     day_lines = "\n".join(
         f"- {d['date']} ({d['name']}): high {d['temp_f']}°F, "
         f"{d['pop_pct']}% chance of rain, wind {d['wind_mph']} mph, {d['short_forecast']}"
         for d in days
     )
     water_temp_line = f"The pool water was last measured at {water_temp}°F." if water_temp else ""
+    heater_line = _heater_facts(system or {})
 
     return f"""You are a practical assistant for the owner of a heated outdoor residential pool.
 Today is {today.strftime('%A, %B %d, %Y')}. {water_temp_line}
 The pool has a heater, so the owner can raise or lower the setpoint a couple of days ahead of an
 upcoming cool or warm stretch to compensate - a big pool takes a couple of days to visibly move in
-temperature, so lead time matters.
+temperature, so lead time matters.{heater_line}
 
 Here is the {len(days)}-day air-temperature and rain forecast:
 {day_lines}
@@ -98,6 +128,14 @@ def _valid_llm_result(result: dict, days: list[dict]) -> bool:
     return True
 
 
+def _system_state() -> dict:
+    """Live controller state, so heater advice can name real numbers."""
+    try:
+        return json.loads((Path(__file__).resolve().parent / "site" / "data" / "system.json").read_text())
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
 def build_advice(weather_path: Path, history_path: Path) -> dict:
     weather = json.loads(weather_path.read_text())
     days = weather.get("days", [])
@@ -111,7 +149,7 @@ def build_advice(weather_path: Path, history_path: Path) -> dict:
     # The forecast is keyed by local calendar days and the owner means their
     # today; the 20:00 local run is 00:00 UTC tomorrow.
     today = pool_now()
-    prompt = _build_prompt(days, water_temp, today)
+    prompt = _build_prompt(days, water_temp, today, _system_state())
     llm_result = _call_llm(prompt)
 
     if llm_result and _valid_llm_result(llm_result, days):

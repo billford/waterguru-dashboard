@@ -677,6 +677,55 @@ up on the next run.
 
 ---
 
+## What the pump telemetry gives us
+
+The variable-speed pump reports live **RPM, flow (GPM) and power (watts)** — the
+only real-time equipment telemetry the controller offers, and it appears in no
+configuration query, so it has to be probed by name. See `PENTAIR_API.md`.
+
+### Detecting a restriction before anything else notices
+
+A variable-speed pump holds the speed it's told to hold. So at a *fixed* RPM,
+the flow it achieves measures how hard the water finds it to get through: a
+loading filter, a clogging skimmer basket, a closing valve — or a cassette
+wedging a skimmer weir open.
+
+That last one actually happened here, and took two days to find. It surfaced
+only when WaterGuru's flow sensor went silent and the pod stopped measuring
+entirely, by which point the chemistry was two days stale and a panel reading
+had been taken from water that hadn't circulated. **Flow at fixed RPM would have
+been visibly falling throughout** — and the pump console, which reports total
+system flow, showed a perfectly healthy 51 gpm the whole time, because the pump
+was fine. It was one skimmer that was starved.
+
+Comparisons are made within an RPM bucket, since comparing raw flow across
+speeds would read every schedule change as a fault, and both sides use medians
+because a single low sample means nothing.
+
+### Inferring top-ups from salt
+
+Salt is conservative — it doesn't evaporate, degrade in sunlight, or get
+consumed. The cell recycles it. So the only ordinary way salt concentration
+*falls* is dilution, which makes the salt reading an accidental flowmeter for
+top-ups: if salt goes from S₀ to S₁, the fraction of the pool that's fresh water
+is `1 − S₁/S₀`.
+
+This matters because dilution corrupts the chlorine burn-rate fit, and top-ups
+were previously recorded by hand — which works right up until you forget, and
+forgetting is the normal case, because the notebook is never where the pool is.
+Detected top-ups are recorded as ordinary events but tagged as inferred, so
+they're distinguishable from something you actually observed. Evaporation moves
+salt the other way and is never read as a top-up.
+
+### Heater advice that names a number
+
+The swim advisor now gets the actual setpoint, whether the heater is enabled,
+and whether it's currently firing. Before this it could say "consider adjusting
+the setpoint" but never "raise it from 81 to 84 on Thursday" — it had never seen
+the setpoint.
+
+---
+
 ## Sensor health
 
 WaterGuru's status flags answer "is the water OK?". They don't answer "is the

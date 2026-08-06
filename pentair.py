@@ -47,6 +47,14 @@ CIRCUIT_KEYS = ["SNAME", "STATUS", "SUBTYP"]
 SYSTEM_OBJECT = "_5451"
 SYSTEM_KEYS = ["MODE", "VER", "PROPNAME", "TIMZON", "ZIP"]
 
+PUMP_KEYS = ["SNAME", "SUBTYP", "STATUS", "RPM", "GPM", "PWR", "MIN", "MAX", "ALARM"]
+
+# Pumps hang off no body and appear in no configuration query, so they can't be
+# discovered the way the heater and chlorinator are - they have to be probed by
+# name. These cover the naming schemes seen in the wild; the first that answers
+# with OBJTYP=PUMP wins.
+PUMP_CANDIDATES = [f"PMP{i:02d}" for i in range(1, 9)] + [f"P{i:04d}" for i in range(1, 9)]
+
 # HTMODE is 0 when the heater isn't currently calling for heat.
 HTMODE_IDLE = "0"
 
@@ -125,6 +133,22 @@ def discover_objects(client: Client) -> dict:
         elif objtyp == "CIRCUIT":
             found["circuits"].append(objnam)
 
+    found["pumps"] = _discover_pumps(client)
+    return found
+
+
+def _discover_pumps(client: Client) -> list[str]:
+    """Probes for pump objects, which no query lists."""
+    found = []
+    # Batched: one round trip per group, rather than sixteen.
+    for i in range(0, len(PUMP_CANDIDATES), 8):
+        batch = PUMP_CANDIDATES[i:i + 8]
+        params = client.params([{"objnam": o, "keys": ["SUBTYP", "RPM", "SNAME"]} for o in batch])
+        for objnam, values in params.items():
+            # An object with no value echoes the key name back, so a real pump is
+            # one whose RPM is anything other than the literal string "RPM".
+            if values.get("RPM") not in (None, "", "RPM"):
+                found.append(objnam)
     return found
 
 
@@ -152,6 +176,7 @@ def read_state(host: str = None) -> dict:
         # measurement schedules already run on, and the most authoritative
         # source for what day it is at the pool.
         requests.append({"objnam": SYSTEM_OBJECT, "keys": SYSTEM_KEYS})
+        requests += [{"objnam": p, "keys": PUMP_KEYS} for p in objects.get("pumps", [])]
 
         params = client.params(requests)
 
@@ -164,6 +189,7 @@ def normalize(params: dict, objects: dict) -> dict:
     chem = params.get(objects.get("chem")) or {}
     heater = params.get(objects.get("heater")) or {}
     system = params.get(SYSTEM_OBJECT) or {}
+    pump = next((params.get(p) or {} for p in objects.get("pumps") or []), {})
 
     circuits = {}
     for objnam in objects.get("circuits") or []:
@@ -193,6 +219,13 @@ def normalize(params: dict, objects: dict) -> dict:
         "chlorinator_spa_pct": _as_float(chem.get("SEC")),
         "salt_ppm": _as_float(chem.get("SALT")),
         "chlorinator_name": chem.get("SNAME"),
+        # The only live equipment telemetry the controller offers: actual flow,
+        # actual speed, actual power. Everything else is a setting or a state.
+        "pump_name": pump.get("SNAME"),
+        "pump_rpm": _as_float(pump.get("RPM")),
+        "pump_gpm": _as_float(pump.get("GPM")),
+        "pump_watts": _as_float(pump.get("PWR")),
+        "pump_alarm": pump.get("ALARM") not in (None, "", "OFF", "ALARM"),
         "utc_offset_hours": _as_float(system.get("TIMZON")),
         "zip": system.get("ZIP"),
         "circuits": circuits,
@@ -209,13 +242,15 @@ def store_state(state: dict, conn=None):
         conn.execute(
             """INSERT INTO system_snapshots (
                    read_at, water_temp, setpoint, volume_gallons, pump_running,
-                   heater_enabled, heater_calling, chlorinator_output_pct, salt_ppm, circuits_json
-               ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   heater_enabled, heater_calling, chlorinator_output_pct, salt_ppm,
+                   pump_rpm, pump_gpm, pump_watts, circuits_json
+               ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 state["read_at"], state.get("water_temp"), state.get("setpoint"),
                 state.get("volume_gallons"), int(bool(state.get("pump_running"))),
                 int(bool(state.get("heater_enabled"))), int(bool(state.get("heater_calling"))),
                 state.get("chlorinator_output_pct"), state.get("salt_ppm"),
+                state.get("pump_rpm"), state.get("pump_gpm"), state.get("pump_watts"),
                 json.dumps(state.get("circuits") or {}),
             ),
         )
@@ -330,6 +365,51 @@ def system_note(state: dict, cya: float = None) -> str | None:
     return " ".join(notes) or None
 
 
+def check_dilution(conn, state: dict) -> dict | None:
+    """Infers a top-up from a fall in salt, and records it like a manual one.
+
+    Salt can only be diluted, never consumed - so this closes the loop that
+    previously depended on remembering to run `annotate.py water-added`, which
+    is exactly the kind of thing nobody remembers at the poolside.
+    """
+    import dilution
+    import trust
+
+    rows = [
+        dict(r)
+        for r in conn.execute(
+            "SELECT read_at, salt_ppm FROM system_snapshots"
+            " WHERE salt_ppm IS NOT NULL ORDER BY read_at"
+        ).fetchall()
+    ]
+    before, after = dilution.recent_salt_pair(rows)
+    found = dilution.detect_top_up(before, after, state.get("volume_gallons"))
+    if not found:
+        return None
+
+    # Recorded as a normal event so the chlorine fit excludes the interval,
+    # flagged as inferred so it is distinguishable from something you observed.
+    events = trust.load_events()
+    already = any(
+        e.get("type") == "water_added" and e.get("source") == "salt"
+        and e.get("from_salt") == found["from_salt"]
+        for e in events.values()
+    )
+    if already:
+        return None
+
+    events[state["read_at"]] = {
+        "type": "water_added",
+        "source": "salt",
+        "note": found["text"],
+        "gallons_added": found["gallons_added"],
+        "from_salt": found["from_salt"],
+        "recorded_at": state["read_at"],
+    }
+    trust.save_events(events)
+    return found
+
+
 def export_system(out_path, host: str = None, lookback: int = 200) -> dict | None:
     """Reads, stores and publishes the system snapshot for the dashboard."""
     from db import connect
@@ -339,11 +419,13 @@ def export_system(out_path, host: str = None, lookback: int = 200) -> dict | Non
     conn = connect()
     try:
         record_changes(state, conn)
+        state["dilution_detected"] = check_dilution(conn, state)
         store_state(state, conn)
         history = [
             dict(r)
             for r in conn.execute(
-                "SELECT read_at, pump_running, heater_calling, water_temp, salt_ppm"
+                "SELECT read_at, pump_running, heater_calling, water_temp, salt_ppm,"
+                " pump_rpm, pump_gpm, pump_watts"
                 " FROM system_snapshots ORDER BY read_at DESC LIMIT ?",
                 (lookback,),
             ).fetchall()
@@ -371,6 +453,9 @@ def export_system(out_path, host: str = None, lookback: int = 200) -> dict | Non
     except Exception:
         cya = None
     payload["system_note"] = system_note(state, cya)
+
+    import restriction
+    payload["restriction"] = restriction.status(history)
 
     # Cross-check the two systems' idea of pool volume, since WaterGuru's dose
     # recommendations are computed from its own figure.

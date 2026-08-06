@@ -56,6 +56,9 @@ CREATE TABLE IF NOT EXISTS system_snapshots (
     heater_calling INTEGER,
     chlorinator_output_pct REAL,
     salt_ppm REAL,
+    pump_rpm REAL,
+    pump_gpm REAL,
+    pump_watts REAL,
     circuits_json TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_system_time ON system_snapshots(read_at);
@@ -116,11 +119,20 @@ PANEL_FIELDS = ("ta", "ch", "cya", "th")
 DAILY_FIELDS = ("free_cl", "ph", "skimmer_flow")
 
 
+# Added to system_snapshots after it shipped.
+NEW_SYSTEM_COLUMNS = {"pump_rpm": "REAL", "pump_gpm": "REAL", "pump_watts": "REAL"}
+
+
 def _migrate(conn: sqlite3.Connection):
     existing = {row[1] for row in conn.execute("PRAGMA table_info(snapshots)")}
     for col, col_type in NEW_COLUMNS.items():
         if col not in existing:
             conn.execute(f"ALTER TABLE snapshots ADD COLUMN {col} {col_type}")
+
+    existing = {row[1] for row in conn.execute("PRAGMA table_info(system_snapshots)")}
+    for col, col_type in NEW_SYSTEM_COLUMNS.items():
+        if col not in existing:
+            conn.execute(f"ALTER TABLE system_snapshots ADD COLUMN {col} {col_type}")
 
 
 def connect(db_path: Path = None) -> sqlite3.Connection:

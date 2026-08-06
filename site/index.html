@@ -345,6 +345,9 @@
     <h2>Pool system <span class="card-sub" id="systemSub" style="font-weight:400;"></span></h2>
     <div class="card-sub">live from the Pentair IntelliCenter on the local network</div>
     <div class="tiles" id="systemTiles"></div>
+    <div class="trust-banner" id="restrictionNote" style="display:none;">
+      <span>🚱</span><span id="restrictionText"></span>
+    </div>
     <div class="stabilizer-note" id="systemNote" style="display:none;">
       <span>🧂</span><span id="systemNoteText"></span>
     </div>
@@ -950,8 +953,19 @@ function renderSystem() {
     { label: 'Heater', value: heater, sub: s.setpoint != null ? 'setpoint ' + s.setpoint + '°F' : '' },
     { label: 'Salt cell output', value: fmtNum(s.chlorinator_output_pct), unit: '%' },
     { label: 'Salt', value: fmtNum(s.salt_ppm), unit: 'ppm' },
-    { label: 'Pool volume', value: fmtNum(s.volume_gallons), unit: 'gal' },
   ];
+  // The only live equipment telemetry the controller offers. Flow at a fixed
+  // speed is what makes a building restriction visible.
+  if (s.pump_gpm != null) {
+    items.push({ label: 'Pump flow', value: fmtNum(s.pump_gpm), unit: 'gpm',
+                 sub: s.pump_rpm != null ? fmtNum(s.pump_rpm) + ' rpm' : '' });
+  }
+  if (s.pump_watts != null) {
+    const kwh = (s.pump_watts * 24 / 1000);
+    items.push({ label: 'Pump power', value: fmtNum(s.pump_watts), unit: 'W',
+                 sub: '~' + kwh.toFixed(1) + ' kWh/day' });
+  }
+  items.push({ label: 'Pool volume', value: fmtNum(s.volume_gallons), unit: 'gal' });
   const on = Object.entries(s.circuits || {}).filter(([, v]) => v).map(([k]) => k);
   if (on.length) items.push({ label: 'Circuits on', value: on.length, sub: on.join(', ') });
 
@@ -972,6 +986,16 @@ function renderSystem() {
     }
     el.querySelector('.sub').textContent = it.sub || '';
     wrap.appendChild(el);
+  }
+
+  // A restriction is the one controller finding that needs acting on today.
+  const restrictionCard = document.getElementById('restrictionNote');
+  const finding = s.restriction && s.restriction.finding;
+  if (finding) {
+    restrictionCard.style.display = '';
+    document.getElementById('restrictionText').textContent = finding.text;
+  } else {
+    restrictionCard.style.display = 'none';
   }
 
   const note = document.getElementById('systemNote');
