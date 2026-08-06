@@ -535,6 +535,42 @@ Protocol notes, since it's undocumented and the shape isn't obvious:
 
 ---
 
+## Volume-corrected doses
+
+WaterGuru computes every dose recommendation from the pool volume configured in
+its app. If that figure is wrong, so is every dose — and these are instructions
+like "add 73.3 cups of calcium chloride", where being a third out is a real
+overshoot that has to be diluted back out over weeks.
+
+The controller's volume is cross-checked against WaterGuru's on every run.
+When they disagree by more than 10%, `dosing.py` shows the corrected figure
+beside the original, on the dashboard and in the push. **It never rewrites
+WaterGuru's text** — silently editing someone else's dosing advice is its own
+kind of dangerous, so the original stays visible and the correction is additive.
+
+Getting the volume right in the WaterGuru app is the real fix, after which this
+does nothing. It stays as a tripwire in case the two ever diverge again.
+
+---
+
+## Measuring pump runtime
+
+A salt cell only makes chlorine while water is moving, so an output percentage
+is meaningless without the runtime it was applied over — and two samples a day
+cannot tell an eight-hour schedule from a twenty-four-hour one.
+
+The controller is on the LAN, unauthenticated and free to query, so unlike the
+WaterGuru API there's no reason to be sparing. `poll_system.py` samples it every
+ten minutes via `com.billfordx.pool-poll.plist`, writing to the same
+`system_snapshots` table the twice-daily run uses. It never touches the
+WaterGuru API and never publishes.
+
+```bash
+launchctl load ~/Library/LaunchAgents/com.billfordx.pool-poll.plist
+```
+
+---
+
 ## Sensor health
 
 WaterGuru's status flags answer "is the water OK?". They don't answer "is the

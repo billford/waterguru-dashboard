@@ -24,6 +24,7 @@ from datetime import datetime, timezone
 import requests
 
 import anomaly
+import dosing
 import trust
 from config import load_dotenv
 from consumables import runway, was_replaced
@@ -91,7 +92,7 @@ def build_alerts(conn, row: dict, now: datetime) -> list[tuple[str, str]]:
     """All alerts due for one water body on this run, deduped state included."""
     name = row.get("name") or "Pool"
     alerts = []
-    alerts += _status_alerts(row, name, _current_trust(conn, row))
+    alerts += _status_alerts(row, name, _current_trust(conn, row), _dose_factor(conn, row))
     alerts += _cassette_alerts(row, name)
     alerts += _battery_alerts(row, name)
 
@@ -163,13 +164,26 @@ def _current_trust(conn, row: dict) -> dict | None:
     return trust.evaluate(history).get(key)
 
 
-def _status_alerts(row: dict, name: str, verdict: dict = None) -> list[tuple[str, str]]:
+def _dose_factor(conn, row: dict) -> float | None:
+    """Ratio between the real pool volume and the one WaterGuru doses from."""
+    try:
+        controller = conn.execute(
+            "SELECT volume_gallons FROM system_snapshots ORDER BY read_at DESC LIMIT 1"
+        ).fetchone()
+    except Exception:
+        return None
+    actual = controller["volume_gallons"] if controller else None
+    return dosing.scale_factor(actual, row.get("size_gallons"))
+
+
+def _status_alerts(row: dict, name: str, verdict: dict = None,
+                   dose_factor: float = None) -> list[tuple[str, str]]:
     status = row["status"]
     prev_status = row.get("prev_status")
 
     if status == "RED" and prev_status != "RED":
         title = f"{name}: pool status RED"
-        message = _format_alerts(row["alerts_json"]) or "Check the dashboard for details."
+        message = _format_alerts(row["alerts_json"], dose_factor) or "Check the dashboard for details."
         # A dose sized from an unrepresentative sample is the most costly thing
         # this pipeline can tell someone to do. Say so in the same breath.
         if verdict and not verdict.get("trusted"):
@@ -315,7 +329,7 @@ def _pretty_date(date_str) -> str:
     return datetime.fromisoformat(date_str).strftime("%b %-d")
 
 
-def _format_alerts(alerts_json: str) -> str:
+def _format_alerts(alerts_json: str, dose_factor: float = None) -> str:
     """RED alert texts, each followed by its dose if WaterGuru worked one out.
 
     "Calcium Hardness very low" tells you something is wrong; "Add 73 cups of
@@ -327,12 +341,17 @@ def _format_alerts(alerts_json: str) -> str:
     except (TypeError, ValueError):
         return ""
 
+    alerts = dosing.annotate_alerts(alerts, dose_factor)
     lines = []
     for a in alerts:
         if a.get("status") != "RED" or not a.get("text"):
             continue
         advice = a.get("advice")
-        lines.append(f"{a['text']} - {advice}" if advice else a["text"])
+        correction = a.get("dose_correction")
+        line = f"{a['text']} - {advice}" if advice else a["text"]
+        if correction:
+            line += f" ({correction})"
+        lines.append(line)
     return "; ".join(lines)
 
 

@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Samples the Pentair controller every 10 minutes to measure real pump runtime.
+  Local, unauthenticated, read-only - unlike the WaterGuru API there's no reason
+  to be sparing, and duty cycle can't be inferred from two samples a day.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.billfordx.pool-poll</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/billfordx/Projects/waterguru/venv/bin/python</string>
+        <string>/Users/billfordx/Projects/waterguru/poll_system.py</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/Users/billfordx/Projects/waterguru</string>
+    <key>StartInterval</key>
+    <integer>600</integer>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/Users/billfordx/Projects/waterguru/data/poll.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/billfordx/Projects/waterguru/data/poll.err.log</string>
+</dict>
+</plist>

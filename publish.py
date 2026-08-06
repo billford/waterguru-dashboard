@@ -17,6 +17,7 @@ import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
+import dosing
 import trust
 from db import connect, dedupe_by_measurement
 from freshness import freshness_for
@@ -26,7 +27,7 @@ OUT_FILE = HERE / "site" / "data" / "history.json"
 DAYS_KEPT = 180
 
 
-def _chemistry_point(r: dict, verdicts: dict = None) -> dict:
+def _chemistry_point(r: dict, verdicts: dict = None, actual_gallons: float = None) -> dict:
     key = r["latest_measure_time"] or r["fetched_at"]
     return {
         "t": key,
@@ -50,7 +51,10 @@ def _chemistry_point(r: dict, verdicts: dict = None) -> dict:
         "battery_time_left": r["battery_time_left"],
         "rssi": r["rssi"],
         "rssi_desc": r["rssi_desc"],
-        "alerts": json.loads(r["alerts_json"]) if r["alerts_json"] else [],
+        "alerts": dosing.annotate_alerts(
+            json.loads(r["alerts_json"]) if r["alerts_json"] else [],
+            dosing.scale_factor(actual_gallons, r.get("size_gallons")),
+        ),
     }
 
 
@@ -81,6 +85,19 @@ def rows_for_export(conn: sqlite3.Connection, days: int = DAYS_KEPT) -> list[dic
     return [dict(r) for r in cur.fetchall()]
 
 
+def _controller_volume() -> float | None:
+    """The pool controller's volume, which is the figure we believe."""
+    try:
+        conn = connect()
+        row = conn.execute(
+            "SELECT volume_gallons FROM system_snapshots ORDER BY read_at DESC LIMIT 1"
+        ).fetchone()
+        conn.close()
+        return row["volume_gallons"] if row else None
+    except Exception:
+        return None
+
+
 def build_payload(rows: list[dict], now: datetime = None) -> dict:
     now = now or datetime.now(timezone.utc)
 
@@ -94,6 +111,7 @@ def build_payload(rows: list[dict], now: datetime = None) -> dict:
         # Trust is judged on the raw snapshots: the one *preceding* a
         # measurement carries the evidence about the conditions it was taken in.
         verdicts = trust.evaluate(wb_rows)
+        actual_gallons = _controller_volume()
         waterbodies[wb_id] = {
             "name": newest["name"],
             "targets": {
@@ -106,7 +124,7 @@ def build_payload(rows: list[dict], now: datetime = None) -> dict:
                 "th": newest["th_target"],
             },
             "series": [
-                _chemistry_point(r, verdicts) for r in dedupe_by_measurement(wb_rows)
+                _chemistry_point(r, verdicts, actual_gallons) for r in dedupe_by_measurement(wb_rows)
             ],
             "temp_series": [
                 {"t": r["fetched_at"], "water_temp": r["water_temp"]}

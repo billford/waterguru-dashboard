@@ -89,6 +89,9 @@ NEW_COLUMNS = {
     # what WaterGuru means, rather than a tolerance invented at this end.
     "free_cl_green_min": "REAL",
     "free_cl_green_max": "REAL",
+    # WaterGuru's configured pool volume. Stored because every dose it
+    # recommends is computed from it, so a wrong figure skews them all.
+    "size_gallons": "REAL",
 }
 
 # The slow half of the panel: measured roughly monthly, valid for 30 days.
@@ -263,6 +266,7 @@ def parse_waterbody(fetched_at: str, wb: dict) -> dict:
         "panel_measure_time": _measure_time(measurements, "CYA"),
         "free_cl_green_min": free_cl_green_min,
         "free_cl_green_max": free_cl_green_max,
+        "size_gallons": (wb.get("waterBody") or {}).get("sizeGallons"),
         "pod_setup_time": pod.get("setUpTime"),
         "pump_scan_state": pod.get("pumpScanState"),
         "meas_hour": meas_times[0].get("hour"),
@@ -303,7 +307,7 @@ def store_snapshot(fetched_at: str, data: dict, db_path: Path = None):
                     fetched_at, water_body_id, name, status, water_temp, latest_measure_time,
                     free_cl, free_cl_target, ph, ph_target, skimmer_flow, skimmer_flow_target,
                     ta, ta_target, ch, ch_target, cya, cya_target, th, th_target,
-                    panel_measure_time, free_cl_green_min, free_cl_green_max,
+                    panel_measure_time, free_cl_green_min, free_cl_green_max, size_gallons,
                     cassette_pct_left, cassette_days_left, cassette_status, cassette_urgent,
                     battery_pct_left, battery_time_left, battery_status,
                     pod_setup_time, pump_scan_state, meas_hour, meas_minute,
@@ -312,7 +316,7 @@ def store_snapshot(fetched_at: str, data: dict, db_path: Path = None):
                     :fetched_at, :water_body_id, :name, :status, :water_temp, :latest_measure_time,
                     :free_cl, :free_cl_target, :ph, :ph_target, :skimmer_flow, :skimmer_flow_target,
                     :ta, :ta_target, :ch, :ch_target, :cya, :cya_target, :th, :th_target,
-                    :panel_measure_time, :free_cl_green_min, :free_cl_green_max,
+                    :panel_measure_time, :free_cl_green_min, :free_cl_green_max, :size_gallons,
                     :cassette_pct_left, :cassette_days_left, :cassette_status, :cassette_urgent,
                     :battery_pct_left, :battery_time_left, :battery_status,
                     :pod_setup_time, :pump_scan_state, :meas_hour, :meas_minute,

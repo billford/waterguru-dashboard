@@ -986,6 +986,16 @@ function renderAlerts(latest) {
       const adv = document.createElement('div');
       adv.className = 'alert-advice';
       adv.textContent = '→ ' + a.advice;
+      // WaterGuru sizes doses from its configured volume. When that disagrees
+      // with the controller, show the corrected figure rather than rewriting
+      // theirs - editing someone else's dosing advice silently is its own risk.
+      if (a.dose_correction) {
+        const corr = document.createElement('div');
+        corr.style.marginTop = '4px';
+        corr.style.fontWeight = '600';
+        corr.textContent = '⚖ ' + a.dose_correction;
+        adv.appendChild(corr);
+      }
       text.appendChild(adv);
     }
     row.appendChild(icon); row.appendChild(text);
