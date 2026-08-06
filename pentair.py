@@ -492,10 +492,16 @@ def export_log(out_path, limit: int = 40) -> dict:
 
     for when, event in load_events().items():
         kind = event.get("type", "note")
+        text = event.get("note") or ("Water added" if kind == "water_added" else "")
+        if event.get("ends_at"):
+            from freshness import parse_ts
+            began, ended = parse_ts(when), parse_ts(event["ends_at"])
+            if began and ended:
+                text = f"Water added over {(ended - began).total_seconds() / 3600:.1f}h - {text}"
         entries.append({
             "at": when,
             "kind": "water" if kind == "water_added" else "note",
-            "text": event.get("note") or ("Water added" if kind == "water_added" else ""),
+            "text": text,
             "note": None,
         })
 

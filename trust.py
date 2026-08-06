@@ -78,17 +78,27 @@ def save_events(events: dict, path: Path = None):
 
 
 def water_added_between(start, end, events: dict) -> bool:
-    """Was the pool topped up between two measurements?
+    """Did a top-up overlap the period between two measurements?
 
     Fresh water dilutes everything in it. Chlorine drops, but not because the
     pool consumed any - so the interval says nothing about demand and must not
     be fitted as though it did.
+
+    A fill is a *window*, not an instant: a hose left running for hours dilutes
+    throughout. Treating it as a point would keep any interval that began after
+    the tap was opened but before it was closed, which is exactly the interval
+    most affected. Events with no recorded end are treated as instantaneous,
+    which is the safe reading of an unfinished record.
     """
     for stamp, event in (events or {}).items():
         if event.get("type") != "water_added":
             continue
-        when = _parse(stamp)
-        if when is not None and start <= when <= end:
+        began = _parse(stamp)
+        if began is None:
+            continue
+        ended = _parse(event.get("ends_at")) or began
+        # Any overlap at all between [began, ended] and [start, end].
+        if began <= end and ended >= start:
             return True
     return False
 

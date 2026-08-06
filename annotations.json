@@ -1,6 +1,7 @@
 {
   "events": {
     "2026-08-06T14:28:33.274350+00:00": {
+      "ends_at": "2026-08-06T16:22:02.741097+00:00",
       "note": "Topping up after finding the cassette holding the skimmer weir open; level was low enough to starve the skimmer",
       "recorded_at": "2026-08-06T14:28:33.274492+00:00",
       "type": "water_added"

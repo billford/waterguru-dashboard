@@ -278,3 +278,51 @@ def test_other_event_types_do_not_block_a_segment():
         trust._parse("2026-08-10T00:00:00+00:00"),
         {"2026-08-09T00:00:00+00:00": {"type": "something_else"}},
     )
+
+
+# ---- a fill is a window, not an instant ----
+
+def _fill(start, end=None):
+    event = {"type": "water_added"}
+    if end:
+        event["ends_at"] = end
+    return {start: event}
+
+
+def _at(s):
+    return trust._parse(s)
+
+
+def test_an_interval_starting_mid_fill_is_excluded():
+    """The interval most affected by dilution is the one that begins while the
+    hose is still running - treating a fill as a point would keep it."""
+    events = _fill("2026-08-06T14:28:00+00:00", "2026-08-06T16:22:00+00:00")
+    assert trust.water_added_between(
+        _at("2026-08-06T15:00:00+00:00"), _at("2026-08-07T15:00:00+00:00"), events)
+
+
+def test_an_interval_wholly_containing_a_fill_is_excluded():
+    events = _fill("2026-08-06T14:28:00+00:00", "2026-08-06T16:22:00+00:00")
+    assert trust.water_added_between(
+        _at("2026-08-05T00:00:00+00:00"), _at("2026-08-08T00:00:00+00:00"), events)
+
+
+def test_an_interval_ending_before_the_fill_is_kept():
+    events = _fill("2026-08-06T14:28:00+00:00", "2026-08-06T16:22:00+00:00")
+    assert not trust.water_added_between(
+        _at("2026-08-04T00:00:00+00:00"), _at("2026-08-06T12:00:00+00:00"), events)
+
+
+def test_an_interval_starting_after_the_fill_is_kept():
+    events = _fill("2026-08-06T14:28:00+00:00", "2026-08-06T16:22:00+00:00")
+    assert not trust.water_added_between(
+        _at("2026-08-06T18:00:00+00:00"), _at("2026-08-08T00:00:00+00:00"), events)
+
+
+def test_a_fill_with_no_recorded_end_is_treated_as_an_instant():
+    """The safe reading of an unfinished record: exclude the least, not the most."""
+    events = _fill("2026-08-06T14:28:00+00:00")
+    assert trust.water_added_between(
+        _at("2026-08-06T00:00:00+00:00"), _at("2026-08-07T00:00:00+00:00"), events)
+    assert not trust.water_added_between(
+        _at("2026-08-06T15:00:00+00:00"), _at("2026-08-07T00:00:00+00:00"), events)

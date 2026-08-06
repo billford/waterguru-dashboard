@@ -98,6 +98,32 @@ def cmd_water_added(args):
     print("Readings spanning this point won't be used to fit the chlorine burn rate.")
 
 
+def cmd_water_stopped(args):
+    """Closes the most recent open top-up, making it a window rather than a point."""
+    events = load_events()
+    open_fills = {
+        when: e for when, e in events.items()
+        if e.get("type") == "water_added" and not e.get("ends_at")
+    }
+    if not open_fills:
+        print("No open top-up to close. Record one with `water-added` first.", file=sys.stderr)
+        sys.exit(1)
+
+    started = max(open_fills)
+    when = args.timestamp or datetime.now(timezone.utc).isoformat()
+    events[started]["ends_at"] = when
+
+    duration = _parse_iso(when) - _parse_iso(started)
+    hours = duration.total_seconds() / 3600
+    save_events(events)
+    print(f"Top-up closed: {started[:16]} to {when[:16]} ({hours:.1f}h).")
+    print("Readings overlapping that whole window are excluded from the burn-rate fit.")
+
+
+def _parse_iso(value):
+    return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+
+
 def cmd_clear(args):
     annotations = load_annotations()
     if args.timestamp not in annotations:
@@ -127,6 +153,10 @@ def main():
     p.add_argument("timestamp", nargs="?", help="when, ISO format; defaults to now")
     p.add_argument("--note", help="e.g. how much, or why")
     p.set_defaults(func=cmd_water_added)
+
+    p = sub.add_parser("water-stopped", help="close the current top-up")
+    p.add_argument("timestamp", nargs="?", help="when, ISO format; defaults to now")
+    p.set_defaults(func=cmd_water_stopped)
 
     p = sub.add_parser("note", help="log a free-text entry against the pool")
     p.add_argument("text")
@@ -206,7 +236,11 @@ def cmd_log(args):
     for when, event in load_events().items():
         kind = event.get("type", "note")
         label = "water added" if kind == "water_added" else "note"
-        entries.append((when, label, event.get("note") or "", None, None))
+        text = event.get("note") or ""
+        if event.get("ends_at"):
+            hours = (_parse_iso(event["ends_at"]) - _parse_iso(when)).total_seconds() / 3600
+            text = f"(ran {hours:.1f}h) {text}".strip()
+        entries.append((when, label, text, None, None))
 
     if not entries:
         print("Nothing logged yet.")
