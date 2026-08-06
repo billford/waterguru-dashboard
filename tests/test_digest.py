@@ -33,12 +33,12 @@ def test_the_digest_only_goes_out_on_its_day(db):
 
 def test_a_catch_up_run_does_not_send_a_second_copy(db):
     """A sleeping Mac can fire two runs the same day; that's one digest, not two."""
-    mark_sent(db, digest._week_key(SUNDAY), SUNDAY.isoformat())
+    mark_sent(db, digest.DIGEST_KEY, SUNDAY.isoformat())
     assert not digest.is_due(SUNDAY, db)
 
 
 def test_a_new_week_re_arms_the_digest(db):
-    mark_sent(db, digest._week_key(SUNDAY), SUNDAY.isoformat())
+    mark_sent(db, digest.DIGEST_KEY, SUNDAY.isoformat())
     assert digest.is_due(SUNDAY + timedelta(days=7), db)
 
 

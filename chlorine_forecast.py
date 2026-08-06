@@ -57,6 +57,7 @@ import saltcell
 import trust
 from db import connect, dedupe_by_measurement
 from freshness import parse_ts
+from poolclock import pool_today
 
 HERE = Path(__file__).resolve().parent
 
@@ -239,7 +240,7 @@ def project(start_value, start_date, rate_ppm_per_day, water_temp,
         value = max(0.0, value + generation - rate_ppm_per_day * factor)
         out.append(
             {
-                "date": day.date().isoformat(),
+                "date": pool_today(day).isoformat(),
                 "free_cl": round(value, 2),
                 "water_temp_f": water_temp,
             }
@@ -460,7 +461,9 @@ def build_forecast(rows: list[dict], target, weather: dict | None, now: datetime
     # measurement forward to the present first, then forecast from there. The
     # earlier version started the daily walk at the measurement and trimmed, so
     # a reading taken an hour ago reported tomorrow's estimate as "now".
-    stale_days = max(0, (now.date() - measured_at.date()).days)
+    # Day boundaries are the pool's, not UTC's - see poolclock.
+    today = pool_today(now)
+    stale_days = max(0, (today - pool_today(measured_at)).days)
     cya = next((r.get("cya") for r in reversed(measured) if r.get("cya") is not None), None)
 
     # The salt cell generates continuously while the pump runs. What the sensor
@@ -511,7 +514,7 @@ def build_forecast(rows: list[dict], target, weather: dict | None, now: datetime
     )
     projection = [
         {
-            "date": now.date().isoformat(),
+            "date": today.isoformat(),
             "free_cl": estimated_now,
             "water_temp_f": water_temp,
             "estimated": True,

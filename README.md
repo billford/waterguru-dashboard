@@ -645,6 +645,38 @@ what's missing.
 
 ---
 
+## What day is it at the pool?
+
+Timestamps are stored in UTC and that was never the problem. The problem was
+**day-boundary decisions** made in UTC when everything they're compared against
+is local: NWS forecasts are keyed by local calendar days, the pod's measurement
+schedule is local, and "today" means the owner's today.
+
+`launchd` runs at 08:00 and 20:00 local. In an eastern summer that evening run
+is **00:00 UTC the next day**, so half of all runs believed it was tomorrow:
+
+- the chlorine projection skipped the current day and priced tomorrow as today,
+  discarding the forecast temperature for the day being lived in;
+- the swim advisor's prompt asserted the wrong weekday, so every verdict and the
+  heater advice reasoned about the wrong day;
+- the weekly digest fired **Saturday evening**.
+
+`poolclock.py` centralises this. The clock comes from the machine running the
+pipeline, which is on the controller's LAN and therefore at the pool — and
+crucially is DST-aware. The controller reports a *fixed* `TIMZON` (−5 here) with
+no daylight-saving information, so trusting it would put the pool an hour out
+for most of the swimming season; it's used as a **cross-check** instead, and a
+disagreement larger than DST can explain gets reported. `POOL_TZ_OFFSET`
+overrides for running the pipeline away from the pool.
+
+The digest also stopped asking "is it Sunday?" and now asks "when did one last
+go out?" — a Mac asleep through both Sunday windows used to drop that week
+entirely, with no record and no retry. It's the pipeline's only heartbeat, so a
+silently skipped one is the worst failure it has; a missed Sunday is now caught
+up on the next run.
+
+---
+
 ## Sensor health
 
 WaterGuru's status flags answer "is the water OK?". They don't answer "is the

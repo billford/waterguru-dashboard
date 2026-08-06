@@ -14,6 +14,7 @@ from pathlib import Path
 import requests
 
 from db import DB_PATH
+from poolclock import pool_now
 
 OLLAMA_URL = "http://localhost:11434/api/generate"
 MODEL = "qwen2.5:32b"
@@ -107,7 +108,9 @@ def build_advice(weather_path: Path, history_path: Path) -> dict:
     wb_id = next(iter(history.get("waterbodies", {})), None)
     water_temp = _latest_water_temp(wb_id) if wb_id else None
 
-    today = datetime.now(timezone.utc)
+    # The forecast is keyed by local calendar days and the owner means their
+    # today; the 20:00 local run is 00:00 UTC tomorrow.
+    today = pool_now()
     prompt = _build_prompt(days, water_temp, today)
     llm_result = _call_llm(prompt)
 

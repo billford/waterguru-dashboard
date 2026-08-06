@@ -17,12 +17,21 @@ from pathlib import Path
 
 from alerts import send
 from consumables import runway
-from db import connect, mark_sent, was_sent
+from db import connect, last_sent_at, mark_sent, was_sent
+from poolclock import pool_now, pool_weekday
 
 HERE = Path(__file__).resolve().parent
 
 # Sunday. Pool decisions are mostly about the week ahead.
 DIGEST_WEEKDAY = 6
+
+DIGEST_KEY = "digest"
+
+# Never two digests inside a week, even across a DST shift.
+MIN_DIGEST_GAP_DAYS = 6.0
+
+# Past this, a Sunday was missed - send on the next run whatever day it is.
+OVERDUE_DAYS = 8.0
 
 
 def _load(path: Path):
@@ -33,13 +42,33 @@ def _load(path: Path):
 
 
 def is_due(now: datetime, conn) -> bool:
-    if now.weekday() != DIGEST_WEEKDAY:
+    """Sunday at the pool - or overdue, if a Sunday was missed.
+
+    Two bugs here. The weekday was read in UTC, so Saturday 20:00 local (which
+    is Sunday 00:00 UTC) fired the "Sunday" digest on Saturday evening.
+
+    And it asked "is it Sunday?" rather than "when did one last go out?", so a
+    Mac asleep through both of Sunday's windows dropped that week's digest
+    entirely - no record, no retry, nothing due again until the next Sunday.
+    The digest exists to prove the pipeline still works when nothing is wrong,
+    which makes a silently skipped one the worst failure it has.
+
+    Tracking elapsed time instead means a missed Sunday is caught up on the very
+    next run, whatever day that is.
+    """
+    last = last_sent_at(conn, DIGEST_KEY)
+    if last is None:
+        return pool_weekday(now) == DIGEST_WEEKDAY
+
+    elapsed_days = (now - last).total_seconds() / 86400
+    if elapsed_days < MIN_DIGEST_GAP_DAYS:
         return False
-    return not was_sent(conn, _week_key(now))
+    return pool_weekday(now) == DIGEST_WEEKDAY or elapsed_days >= OVERDUE_DAYS
 
 
 def _week_key(now: datetime) -> str:
-    year, week, _ = now.isocalendar()
+    """Retained for the historical record; delivery is gated on elapsed time."""
+    year, week, _ = pool_now(now).isocalendar()
     return f"digest:{year}-W{week:02d}"
 
 
@@ -126,6 +155,7 @@ def maybe_send_digest(now: datetime = None, force: bool = False, site_data: Path
         title, message = digest
         send(title, message, priority="default", tags="swimmer")
         if not force:
+            mark_sent(conn, DIGEST_KEY, now.isoformat())
             mark_sent(conn, _week_key(now), now.isoformat())
         return digest
     finally:

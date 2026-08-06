@@ -43,6 +43,10 @@ CHEM_KEYS = ["SNAME", "STATUS", "PRIM", "SEC", "SALT", "SUPER", "TIMOUT"]
 HEATER_KEYS = ["SNAME", "STATUS", "SUBTYP", "HTMODE"]
 CIRCUIT_KEYS = ["SNAME", "STATUS", "SUBTYP"]
 
+# The controller's own settings object, which carries its timezone offset.
+SYSTEM_OBJECT = "_5451"
+SYSTEM_KEYS = ["MODE", "VER", "PROPNAME", "TIMZON", "ZIP"]
+
 # HTMODE is 0 when the heater isn't currently calling for heat.
 HTMODE_IDLE = "0"
 
@@ -144,6 +148,10 @@ def read_state(host: str = None) -> dict:
         if objects["heater"]:
             requests.append({"objnam": objects["heater"], "keys": HEATER_KEYS})
         requests += [{"objnam": c, "keys": CIRCUIT_KEYS} for c in objects["circuits"]]
+        # The controller knows its own timezone - the clock the pump and
+        # measurement schedules already run on, and the most authoritative
+        # source for what day it is at the pool.
+        requests.append({"objnam": SYSTEM_OBJECT, "keys": SYSTEM_KEYS})
 
         params = client.params(requests)
 
@@ -155,6 +163,7 @@ def normalize(params: dict, objects: dict) -> dict:
     body = params.get(objects.get("body")) or {}
     chem = params.get(objects.get("chem")) or {}
     heater = params.get(objects.get("heater")) or {}
+    system = params.get(SYSTEM_OBJECT) or {}
 
     circuits = {}
     for objnam in objects.get("circuits") or []:
@@ -184,6 +193,8 @@ def normalize(params: dict, objects: dict) -> dict:
         "chlorinator_spa_pct": _as_float(chem.get("SEC")),
         "salt_ppm": _as_float(chem.get("SALT")),
         "chlorinator_name": chem.get("SNAME"),
+        "utc_offset_hours": _as_float(system.get("TIMZON")),
+        "zip": system.get("ZIP"),
         "circuits": circuits,
     }
 
