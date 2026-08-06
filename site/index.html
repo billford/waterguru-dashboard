@@ -363,6 +363,9 @@
     <div class="stabilizer-note" id="clExcludedNote" style="display:none;">
       <span>⚠️</span><span id="clExcludedNoteText"></span>
     </div>
+    <div class="stabilizer-note" id="clCell" style="display:none;">
+      <span>⚡</span><span id="clCellText"></span>
+    </div>
     <div class="stabilizer-note" id="stabilizerNote" style="display:none;">
       <span>🧪</span><span id="stabilizerNoteText"></span>
     </div>
@@ -480,6 +483,23 @@ function renderChlorineForecast() {
     document.getElementById('clExcludedNoteText').textContent = f.excluded_note;
   } else {
     exNote.style.display = 'none';
+  }
+
+  // The salt cell is generating chlorine continuously, so the outlook is a net
+  // of generation and loss - worth stating, since it's the term people forget.
+  const cellBox = document.getElementById('clCell');
+  const cell = f.salt_cell;
+  if (cell) {
+    cellBox.style.display = '';
+    const parts = [cell.description];
+    if (cell.recommended_output_pct != null) {
+      parts.push('To hold chlorine steady, run the cell at about '
+        + cell.recommended_output_pct + '% (currently ' + cell.output_pct + '%).');
+    }
+    if (cell.caveat) parts.push(cell.caveat);
+    document.getElementById('clCellText').textContent = parts.join(' ');
+  } else {
+    cellBox.style.display = 'none';
   }
 
   const stabNote = document.getElementById('stabilizerNote');

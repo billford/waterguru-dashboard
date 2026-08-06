@@ -206,3 +206,43 @@ def test_no_readings_yields_an_unavailable_forecast():
 def test_works_with_no_weather_data_at_all():
     f = build_forecast([reading(10, 8.0)], 3.0, None, NOW)
     assert f["available"] and f["projection"]
+
+
+# ---- salt cell generation ----
+
+SYSTEM = {"volume_gallons": 15000, "chlorinator_output_pct": 50, "pump_runtime_fraction": 0.35}
+
+
+def test_generation_slows_the_projected_decline():
+    rows = [reading(d, 10.0 - d) for d in range(1, 6)]
+    without = build_forecast(rows, 3.0, WEATHER, NOW)
+    with_cell = build_forecast(rows, 3.0, WEATHER, NOW, system=SYSTEM)
+    assert with_cell["projection"][3]["free_cl"] > without["projection"][3]["free_cl"]
+
+
+def test_no_output_recommendation_without_a_measured_demand():
+    """A guess compounded with a guess would confidently say "turn it up" while
+    chlorine sits over the top of range."""
+    f = build_forecast([reading(10, 7.3)], 3.0, WEATHER, NOW, system=SYSTEM)
+    cell = f["salt_cell"]
+    assert cell["recommended_output_pct"] is None
+    assert "hasn't been measured yet" in cell["caveat"]
+
+
+def test_a_recommendation_appears_once_both_inputs_are_measured():
+    rows = [reading(d, 10.0 - d) for d in range(1, 6)]
+    cell = build_forecast(rows, 3.0, WEATHER, NOW, system=SYSTEM)["salt_cell"]
+    assert cell["recommended_output_pct"] is not None
+    assert cell["caveat"] is None
+
+
+def test_assumed_runtime_blocks_the_recommendation():
+    rows = [reading(d, 10.0 - d) for d in range(1, 6)]
+    assumed = {**SYSTEM, "pump_runtime_fraction": 1.0}
+    cell = build_forecast(rows, 3.0, WEATHER, NOW, system=assumed)["salt_cell"]
+    assert cell["recommended_output_pct"] is None
+    assert "pump runtime" in cell["caveat"]
+
+
+def test_no_controller_data_means_no_salt_cell_block():
+    assert build_forecast([reading(10, 7.3)], 3.0, WEATHER, NOW)["salt_cell"] is None

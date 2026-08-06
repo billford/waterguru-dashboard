@@ -41,6 +41,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from statistics import median
 
+import saltcell
 import trust
 from db import connect, dedupe_by_measurement
 from freshness import parse_ts
@@ -173,8 +174,13 @@ def _forecast_temps(weather: dict | None) -> dict:
 
 
 def project(start_value, start_date, rate_ppm_per_day, forecast_temps, fallback_temp,
-            horizon=HORIZON_DAYS, cya=None) -> list[dict]:
-    """Steps chlorine forward a day at a time, scaling loss by heat and stabilizer."""
+            horizon=HORIZON_DAYS, cya=None, generation=0.0) -> list[dict]:
+    """Steps chlorine forward a day at a time.
+
+    Loss scales with heat and stabilizer; generation from the salt cell is a
+    flat daily addition, since output percentage and pump schedule don't vary
+    with the weather.
+    """
     out = []
     value = start_value
     cya_factor = _cya_factor(cya)
@@ -185,7 +191,7 @@ def project(start_value, start_date, rate_ppm_per_day, forecast_temps, fallback_
         assumed = temp is None
         if assumed:
             temp = fallback_temp
-        value = max(0.0, value - rate_ppm_per_day * _temp_factor(temp) * cya_factor)
+        value = max(0.0, value + generation - rate_ppm_per_day * _temp_factor(temp) * cya_factor)
         out.append(
             {
                 "date": key,
@@ -197,7 +203,7 @@ def project(start_value, start_date, rate_ppm_per_day, forecast_temps, fallback_
     return out
 
 
-def decay_to_now(value, measured_at, now, rate_ppm_per_day, forecast_temps, fallback_temp, cya=None):
+def decay_to_now(value, measured_at, now, rate_ppm_per_day, forecast_temps, fallback_temp, cya=None, generation=0.0):
     """Chlorine level right now, decayed forward from the last measurement.
 
     Walks whole days at each day's own temperature, then applies the remaining
@@ -212,7 +218,7 @@ def decay_to_now(value, measured_at, now, rate_ppm_per_day, forecast_temps, fall
     while remaining > 0:
         step = min(1.0, remaining)
         temp = forecast_temps.get(cursor.date().isoformat(), fallback_temp)
-        value = max(0.0, value - rate_ppm_per_day * _temp_factor(temp) * cya_factor * step)
+        value = max(0.0, value + generation * step - rate_ppm_per_day * _temp_factor(temp) * cya_factor * step)
         cursor += timedelta(days=step)
         remaining -= step
 
@@ -266,6 +272,55 @@ def _headline(measured, estimated, target, ceiling, floor, in_range_on, below_on
     return f"{opening}, in range and holding there for the next {HORIZON_DAYS} days."
 
 
+def _salt_cell_block(rate, gallons, output_pct, runtime, generation, cya) -> dict | None:
+    """What the cell contributes, and the output that would hold chlorine steady."""
+    if not gallons or output_pct is None:
+        return None
+
+    # Runtime defaults to "always on" until the poller has enough history, and
+    # that assumption moves the answer by a factor of three.
+    runtime_known = runtime is not None and runtime < 1.0
+    rate_measured = rate["source"] == "fitted"
+
+    # The fitted rate is a net decline measured while the cell was running, so
+    # the pool's real demand is that decline plus whatever the cell was adding.
+    gross_loss = saltcell.gross_loss_ppm_per_day(
+        rate["ppm_per_day"] * _cya_factor(cya), gallons, output_pct, runtime
+    )
+
+    # An output recommendation is only offered when both inputs are measured.
+    # Derived from a generic loss rate and an assumed pump schedule it would be
+    # a guess compounded with a guess - and it would confidently tell you to
+    # turn the cell *up* while chlorine is already over the top of range.
+    missing = []
+    if not rate_measured:
+        missing.append("the pool's own chlorine demand hasn't been measured yet "
+                       f"({rate['segments']} of {MIN_SEGMENTS} usable declines)")
+    if not runtime_known:
+        missing.append("pump runtime hasn't been measured yet")
+
+    recommended = (
+        saltcell.recommended_output_pct(gross_loss, gallons, runtime)
+        if not missing else None
+    )
+
+    return {
+        "model": saltcell.DEFAULT_CELL,
+        "output_pct": output_pct,
+        "runtime_fraction": runtime,
+        "runtime_measured": runtime_known,
+        "generation_ppm_per_day": round(generation, 2),
+        "gross_loss_ppm_per_day": round(gross_loss, 2) if (gross_loss and not missing) else None,
+        "recommended_output_pct": recommended,
+        "description": saltcell.describe(gallons, output_pct, runtime),
+        "caveat": None if not missing else (
+            "No output recommendation yet: " + ", and ".join(missing) + ". "
+            "The generation figure above assumes the pump runs continuously, so treat it "
+            "as an upper bound."
+        ),
+    }
+
+
 def _stabilizer_note(cya, cya_target) -> str | None:
     """Explains a fast burn when the cause is missing stabilizer, not the pool.
 
@@ -297,7 +352,7 @@ def _pretty(date_str: str) -> str:
 
 def build_forecast(rows: list[dict], target, weather: dict | None, now: datetime = None,
                    cya_target=None, green_min=None, green_max=None,
-                   untrusted: set = None, events: dict = None) -> dict:
+                   untrusted: set = None, events: dict = None, system: dict = None) -> dict:
     now = now or datetime.now(timezone.utc)
     untrusted = untrusted or set()
     rows = dedupe_by_measurement(rows)
@@ -348,8 +403,18 @@ def build_forecast(rows: list[dict], target, weather: dict | None, now: datetime
     stale_days = max(0, (now.date() - measured_at.date()).days)
     cya = next((r.get("cya") for r in reversed(measured) if r.get("cya") is not None), None)
 
+    # The salt cell generates continuously while the pump runs. What the sensor
+    # measured is the net of generation and loss, so the fitted rate is a *net*
+    # decline - see saltcell.py for why separating them matters.
+    system = system or {}
+    gallons = system.get("volume_gallons")
+    output_pct = system.get("chlorinator_output_pct")
+    runtime = system.get("pump_runtime_fraction")
+    generation = saltcell.generation_ppm_per_day(gallons, output_pct, runtime) or 0.0
+
     estimated_now = decay_to_now(
-        current, measured_at, now, rate["ppm_per_day"], forecast_temps, fallback_temp, cya
+        current, measured_at, now, rate["ppm_per_day"], forecast_temps, fallback_temp, cya,
+        generation=generation,
     )
     projection = [
         {
@@ -361,7 +426,7 @@ def build_forecast(rows: list[dict], target, weather: dict | None, now: datetime
         }
     ] + project(
         estimated_now, now, rate["ppm_per_day"], forecast_temps, fallback_temp,
-        horizon=HORIZON_DAYS, cya=cya,
+        horizon=HORIZON_DAYS, cya=cya, generation=generation,
     )
 
     # "In range" means what the device means, when it tells us: it judges
@@ -396,6 +461,7 @@ def build_forecast(rows: list[dict], target, weather: dict | None, now: datetime
             current, estimated_now, target, ceiling, floor,
             in_range_on, below_target_on, rate, stale_days,
         ),
+        "salt_cell": _salt_cell_block(rate, gallons, output_pct, runtime, generation, cya),
         "stabilizer_note": _stabilizer_note(cya, cya_target),
         "excluded_measurements": len(excluded),
         "excluded_note": (
@@ -413,6 +479,14 @@ def build_forecast(rows: list[dict], target, weather: dict | None, now: datetime
                     "ignores UV index and bather load.",
         },
     }
+
+
+def _system_state() -> dict:
+    """Latest pool-controller state, for the generation term."""
+    try:
+        return json.loads((HERE / "site" / "data" / "system.json").read_text())
+    except (OSError, json.JSONDecodeError):
+        return {}
 
 
 def export_forecast(weather_path: Path, out_path: Path, now: datetime = None):
@@ -450,6 +524,7 @@ def export_forecast(weather_path: Path, out_path: Path, now: datetime = None):
                 green_max=wb["free_cl_green_max"],
                 untrusted=trust.untrusted_keys(rows),
                 events=trust.load_events(),
+                system=_system_state(),
             )
             payload["water_body_id"] = wb["water_body_id"]
     finally:

@@ -571,6 +571,50 @@ launchctl load ~/Library/LaunchAgents/com.billfordx.pool-poll.plist
 
 ---
 
+## The salt cell
+
+The forecast originally modelled chlorine as decaying and nothing else, which is
+wrong for a salt pool: the cell manufactures chlorine continuously whenever
+water moves.
+
+**The decomposition that matters.** What the sensor observes between two
+measurements is the *net* of two opposing processes:
+
+```
+observed change = generation − gross loss
+```
+
+A fitted decline is therefore not the pool's chlorine demand — it's demand minus
+whatever the cell was making at the time. Projecting that net forward is fine as
+long as nothing changes, which is why the decay-only model was never visibly
+wrong. It breaks the moment you ask *"what if I turn the cell down?"*, because
+that needs the terms separated:
+
+```
+gross loss        = observed net decline + generation at the settings in force
+net at new output = generation(new %) − gross loss
+```
+
+**The cell.** A Pentair IntelliChlor Plus40 (part 523735) makes 1.40 lb of
+chlorine per 24h at 100%. That's a mass, so converting to ppm needs the volume —
+and this pool is 15,000 gallons against a cell rated for 40,000, which is why it
+runs hot at modest settings. At 100% with the pump running continuously it would
+add **11.2 ppm/day**; at the current 50%, **5.6 ppm/day**.
+
+**Runtime is half the answer.** The cell only produces while the pump runs, so
+8h versus 24h is a threefold difference in the result. That's the whole reason
+`poll_system.py` exists.
+
+**No recommendation until both inputs are measured.** The output percentage that
+would hold chlorine steady is only offered once the pool's own demand has been
+fitted *and* pump runtime measured. Derived from a generic loss rate and an
+assumed schedule it would be a guess compounded with a guess — and in testing it
+confidently advised turning the cell *up* while chlorine sat above the top of
+range. Until then the card shows what the cell contributes and says plainly
+what's missing.
+
+---
+
 ## Sensor health
 
 WaterGuru's status flags answer "is the water OK?". They don't answer "is the
