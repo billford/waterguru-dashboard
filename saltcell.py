@@ -106,10 +106,14 @@ def describe(gallons, output_pct, runtime_fraction, model=DEFAULT_CELL) -> str |
     if generation is None:
         return None
 
-    runtime_text = (
-        f"{runtime_fraction * 24:.0f}h of pump runtime a day"
-        if runtime_fraction is not None else "continuous pump runtime"
-    )
+    if runtime_fraction is None:
+        runtime_text = "continuous pump runtime"
+    else:
+        hours = runtime_fraction * 24
+        # 23.75h shouldn't round to a flat "24h" - the distinction is the whole
+        # reason runtime is tracked at all.
+        shown = f"{hours:.0f}" if abs(hours - round(hours)) < 0.05 else f"{hours:.1f}"
+        runtime_text = f"{shown}h of pump runtime a day"
     return (
         f"At {output_pct:g}% output and {runtime_text}, the cell adds about "
         f"{generation:.1f} ppm of chlorine per day to {gallons:,.0f} gallons."

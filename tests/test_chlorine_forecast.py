@@ -1,3 +1,4 @@
+import pytest
 from datetime import datetime, timezone
 
 from chlorine_forecast import (
@@ -210,14 +211,46 @@ def test_works_with_no_weather_data_at_all():
 
 # ---- salt cell generation ----
 
-SYSTEM = {"volume_gallons": 15000, "chlorinator_output_pct": 50, "pump_runtime_fraction": 0.35}
+SYSTEM = {"volume_gallons": 15000, "chlorinator_output_pct": 50,
+          "pump_runtime_fraction": 0.35, "runtime_source": "measured"}
 
 
-def test_generation_slows_the_projected_decline():
+def test_modelling_generation_leaves_a_fitted_projection_unchanged():
+    """The invariant that explains why the decay-only model was never visibly
+    wrong: a rate fitted from observed data already contains the cell's output,
+    so adding generation and adding it back into demand cancel out. The value of
+    separating them is answering "what if the output changed?", not moving this
+    projection."""
     rows = [reading(d, 10.0 - d) for d in range(1, 6)]
     without = build_forecast(rows, 3.0, WEATHER, NOW)
     with_cell = build_forecast(rows, 3.0, WEATHER, NOW, system=SYSTEM)
-    assert with_cell["projection"][3]["free_cl"] > without["projection"][3]["free_cl"]
+    assert with_cell["projection"][3]["free_cl"] == pytest.approx(
+        without["projection"][3]["free_cl"], abs=0.05)
+
+
+def test_demand_is_larger_than_the_observed_decline_when_a_cell_is_running():
+    """A pool declining 1 ppm/day while its cell adds 2 really consumes 3."""
+    rows = [reading(d, 10.0 - d) for d in range(1, 6)]
+    plain = build_forecast(rows, 3.0, WEATHER, NOW)["rate"]["ppm_per_day"]
+    with_cell = build_forecast(rows, 3.0, WEATHER, NOW, system=SYSTEM)["rate"]["ppm_per_day"]
+    assert with_cell > plain
+
+
+def test_a_rise_the_cell_can_explain_is_used_rather_than_discarded():
+    """With an overproducing cell most intervals rise; discarding them all left
+    the model unable to ever fit a rate."""
+    from chlorine_forecast import decay_segments
+
+    rising = [reading(1, 5.0), reading(2, 6.0)]
+    assert decay_segments(rising) == []
+    assert len(decay_segments(rising, {}, generation=5.0)) == 1
+
+
+def test_a_rise_too_large_for_the_cell_is_still_treated_as_dosing():
+    from chlorine_forecast import decay_segments
+
+    shocked = [reading(1, 3.0), reading(2, 20.0)]
+    assert decay_segments(shocked, {}, generation=5.0) == []
 
 
 def test_no_output_recommendation_without_a_measured_demand():
@@ -237,8 +270,10 @@ def test_a_recommendation_appears_once_both_inputs_are_measured():
 
 
 def test_assumed_runtime_blocks_the_recommendation():
+    """Runtime neither measured nor declared: an 8h vs 24h schedule is a 3x
+    swing, so a percentage built on the assumption isn't worth stating."""
     rows = [reading(d, 10.0 - d) for d in range(1, 6)]
-    assumed = {**SYSTEM, "pump_runtime_fraction": 1.0}
+    assumed = {**SYSTEM, "pump_runtime_fraction": 1.0, "runtime_source": None}
     cell = build_forecast(rows, 3.0, WEATHER, NOW, system=assumed)["salt_cell"]
     assert cell["recommended_output_pct"] is None
     assert "pump runtime" in cell["caveat"]

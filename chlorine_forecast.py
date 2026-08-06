@@ -95,17 +95,30 @@ def _cya_factor(cya: float | None) -> float:
     return CYA_BANDS[-1][1]
 
 
-def decay_segments(rows: list[dict], events: dict = None) -> list[dict]:
-    """Per-day chlorine losses between consecutive measurements.
+def decay_segments(rows: list[dict], events: dict = None, generation: float = 0.0) -> list[dict]:
+    """Per-day chlorine *demand* between consecutive measurements.
 
-    Two kinds of interval are thrown out rather than fitted:
+    What the sensor sees is the net of generation and loss, so demand is
+    recovered by adding back whatever the cell was making:
 
-    - **Chlorine went up.** Someone added some; that says nothing about how fast
-      the pool consumes it.
-    - **Water was added.** Topping up dilutes everything in the pool, so chlorine
-      falls without any of it being consumed. Fitted as decay, a big top-up
-      would look like a catastrophic burn rate and the forecast would predict
-      the pool stripping itself bare within a day.
+        demand = generation - observed net change
+
+    **This is why a rise is not automatically discarded.** In a manually-dosed
+    pool, chlorine going up can only mean someone added some, and the interval
+    says nothing about demand. In a salt pool it usually means the cell
+    outproduced the loss, and the interval is just as informative as a decline.
+    The earlier rule threw those away - which, with a cell that overproduces,
+    discarded most intervals and left the model unable to ever fit a rate.
+
+    Intervals are still discarded when:
+
+    - **Chlorine rose faster than the cell could possibly have raised it**, which
+      means it was dosed by hand and the arithmetic doesn't hold.
+    - **Water was added.** Topping up dilutes rather than consumes, so fitting it
+      as demand would predict the pool stripping itself bare within a day.
+
+    With `generation=0` this reduces exactly to the old behaviour: demand is the
+    decline, and any rise yields a negative demand and is dropped.
     """
     events = events or {}
     points = []
@@ -119,21 +132,25 @@ def decay_segments(rows: list[dict], events: dict = None) -> list[dict]:
         gap_days = (t1 - t0).total_seconds() / 86400
         if gap_days <= 0:
             continue
-        drop = v0 - v1
-        if drop <= 0:
-            continue  # chlorine was added - tells us nothing about natural loss
         if trust.water_added_between(t0, t1, events):
             continue  # diluted, not consumed
+
+        net_change_per_day = (v1 - v0) / gap_days
+        rate = generation - net_change_per_day
+        if rate <= 0:
+            # Chlorine climbed faster than the cell can produce, so something
+            # was added by hand. Nothing can be inferred about demand.
+            continue
+
         temps = [t for t in (temp0, temp1) if t is not None]
         avg_temp = sum(temps) / len(temps) if temps else None
         cya = cya1 if cya1 is not None else cya0
-        rate = drop / gap_days
         segments.append(
             {
                 "from": t0.isoformat(),
                 "to": t1.isoformat(),
                 "gap_days": round(gap_days, 2),
-                "drop_ppm": round(drop, 2),
+                "net_change_ppm": round(v1 - v0, 2),
                 "rate_ppm_per_day": rate,
                 "avg_temp_f": avg_temp,
                 "cya": cya,
@@ -147,9 +164,9 @@ def decay_segments(rows: list[dict], events: dict = None) -> list[dict]:
     return segments
 
 
-def fit_rate(rows: list[dict], events: dict = None) -> dict:
-    """Baseline ppm/day loss at REF_TEMP_F, fitted if there's enough history."""
-    segments = decay_segments(rows, events)
+def fit_rate(rows: list[dict], events: dict = None, generation: float = 0.0) -> dict:
+    """Baseline ppm/day chlorine demand at REF_TEMP_F, fitted if history allows."""
+    segments = decay_segments(rows, events, generation)
     if len(segments) >= MIN_SEGMENTS:
         return {
             "ppm_per_day": round(median(s["normalized_rate"] for s in segments), 3),
@@ -272,21 +289,22 @@ def _headline(measured, estimated, target, ceiling, floor, in_range_on, below_on
     return f"{opening}, in range and holding there for the next {HORIZON_DAYS} days."
 
 
-def _salt_cell_block(rate, gallons, output_pct, runtime, generation, cya) -> dict | None:
+def _salt_cell_block(rate, gallons, output_pct, runtime, generation, cya,
+                     runtime_source=None) -> dict | None:
     """What the cell contributes, and the output that would hold chlorine steady."""
     if not gallons or output_pct is None:
         return None
 
     # Runtime defaults to "always on" until the poller has enough history, and
     # that assumption moves the answer by a factor of three.
-    runtime_known = runtime is not None and runtime < 1.0
+    runtime_known = bool(runtime_source)
     rate_measured = rate["source"] == "fitted"
 
     # The fitted rate is a net decline measured while the cell was running, so
     # the pool's real demand is that decline plus whatever the cell was adding.
-    gross_loss = saltcell.gross_loss_ppm_per_day(
-        rate["ppm_per_day"] * _cya_factor(cya), gallons, output_pct, runtime
-    )
+    # rate is already gross demand - decay_segments adds generation back when
+    # fitting - so it must not be added a second time here.
+    gross_loss = rate["ppm_per_day"] * _cya_factor(cya)
 
     # An output recommendation is only offered when both inputs are measured.
     # Derived from a generic loss rate and an assumed pump schedule it would be
@@ -295,7 +313,7 @@ def _salt_cell_block(rate, gallons, output_pct, runtime, generation, cya) -> dic
     missing = []
     if not rate_measured:
         missing.append("the pool's own chlorine demand hasn't been measured yet "
-                       f"({rate['segments']} of {MIN_SEGMENTS} usable declines)")
+                       f"({rate['segments']} of {MIN_SEGMENTS} usable intervals)")
     if not runtime_known:
         missing.append("pump runtime hasn't been measured yet")
 
@@ -308,7 +326,7 @@ def _salt_cell_block(rate, gallons, output_pct, runtime, generation, cya) -> dic
         "model": saltcell.DEFAULT_CELL,
         "output_pct": output_pct,
         "runtime_fraction": runtime,
-        "runtime_measured": runtime_known,
+        "runtime_source": runtime_source,
         "generation_ppm_per_day": round(generation, 2),
         "gross_loss_ppm_per_day": round(gross_loss, 2) if (gross_loss and not missing) else None,
         "recommended_output_pct": recommended,
@@ -389,7 +407,6 @@ def build_forecast(rows: list[dict], target, weather: dict | None, now: datetime
     current = latest["free_cl"]
     measured_at = parse_ts(latest.get("latest_measure_time") or latest.get("fetched_at")) or now
 
-    rate = fit_rate(measured, events)
     forecast_temps = _forecast_temps(weather)
     fallback_temp = (
         list(forecast_temps.values())[-1] if forecast_temps else latest.get("water_temp")
@@ -411,6 +428,10 @@ def build_forecast(rows: list[dict], target, weather: dict | None, now: datetime
     output_pct = system.get("chlorinator_output_pct")
     runtime = system.get("pump_runtime_fraction")
     generation = saltcell.generation_ppm_per_day(gallons, output_pct, runtime) or 0.0
+
+    # Fitted *after* generation is known: demand is recovered by adding back
+    # what the cell was making, so the fit depends on it.
+    rate = fit_rate(measured, events, generation)
 
     estimated_now = decay_to_now(
         current, measured_at, now, rate["ppm_per_day"], forecast_temps, fallback_temp, cya,
@@ -461,7 +482,8 @@ def build_forecast(rows: list[dict], target, weather: dict | None, now: datetime
             current, estimated_now, target, ceiling, floor,
             in_range_on, below_target_on, rate, stale_days,
         ),
-        "salt_cell": _salt_cell_block(rate, gallons, output_pct, runtime, generation, cya),
+        "salt_cell": _salt_cell_block(rate, gallons, output_pct, runtime, generation, cya,
+                                      system.get("runtime_source")),
         "stabilizer_note": _stabilizer_note(cya, cya_target),
         "excluded_measurements": len(excluded),
         "excluded_note": (

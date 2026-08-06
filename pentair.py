@@ -214,6 +214,25 @@ def store_state(state: dict, conn=None):
             conn.close()
 
 
+# Enough poll samples to trust a measured duty cycle over a declared one.
+MIN_SAMPLES_FOR_RUNTIME = 72
+
+
+def declared_runtime_fraction() -> float | None:
+    """Pump runtime as configured by hand, e.g. PUMP_RUNTIME_HOURS=23.75.
+
+    Measuring beats being told, but a schedule the owner can read off the
+    controller is a real fact, and waiting days to rediscover it is silly.
+    """
+    raw = os.environ.get("PUMP_RUNTIME_HOURS")
+    if not raw:
+        return None
+    try:
+        return min(1.0, max(0.0, float(raw) / 24.0))
+    except ValueError:
+        return None
+
+
 def pump_runtime_fraction(rows: list[dict]) -> float | None:
     """Rough share of recent readings with the pump running.
 
@@ -321,8 +340,14 @@ def export_system(out_path, host: str = None, lookback: int = 200) -> dict | Non
     finally:
         conn.close()
 
+    measured = pump_runtime_fraction(history) if len(history) >= MIN_SAMPLES_FOR_RUNTIME else None
+    declared = declared_runtime_fraction()
+
     payload = dict(state)
-    payload["pump_runtime_fraction"] = pump_runtime_fraction(history)
+    payload["pump_runtime_fraction"] = measured if measured is not None else declared
+    payload["runtime_source"] = (
+        "measured" if measured is not None else ("declared" if declared is not None else None)
+    )
     payload["history_points"] = len(history)
     cya = None
     try:
@@ -351,14 +376,6 @@ def export_system(out_path, host: str = None, lookback: int = 200) -> dict | Non
     out_path.write_text(json.dumps(payload, indent=2))
     return payload
 
-
-if __name__ == "__main__":
-    from pathlib import Path
-
-    from config import load_dotenv
-
-    load_dotenv()
-    print(json.dumps(export_system(Path(__file__).resolve().parent / "site" / "data" / "system.json"), indent=1))
 
 
 # Settings a person changes, as opposed to state that moves on its own. The pump
@@ -487,3 +504,11 @@ def export_log(out_path, limit: int = 40) -> dict:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(payload, indent=2))
     return payload
+
+if __name__ == "__main__":
+    from pathlib import Path
+
+    from config import load_dotenv
+
+    load_dotenv()
+    print(json.dumps(export_system(Path(__file__).resolve().parent / "site" / "data" / "system.json"), indent=1))

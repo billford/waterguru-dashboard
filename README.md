@@ -602,8 +602,32 @@ runs hot at modest settings. At 100% with the pump running continuously it would
 add **11.2 ppm/day**; at the current 50%, **5.6 ppm/day**.
 
 **Runtime is half the answer.** The cell only produces while the pump runs, so
-8h versus 24h is a threefold difference in the result. That's the whole reason
-`poll_system.py` exists.
+8h versus 24h is a threefold difference in the result. `poll_system.py` measures
+it; `PUMP_RUNTIME_HOURS` in `.env` declares it when the schedule is simply known
+(this pump runs 23:45 with a 15-minute cool-down, so 23.75). Measured beats
+declared, but waiting days to rediscover a schedule you can read off the
+controller is silly.
+
+**Why a rise isn't discarded.** The fit originally threw away any interval where
+chlorine went *up*, on the grounds that it meant someone dosed the pool. In a
+salt pool a rise usually just means the cell outproduced the loss — and with an
+oversized cell most intervals rise, so that rule discarded nearly everything and
+left the model unable to ever fit a rate. Demand is now recovered from either
+direction:
+
+```
+demand = generation − observed net change
+```
+
+An interval is only discarded when chlorine rose *faster than the cell could
+possibly have raised it*, which does mean it was dosed by hand. With
+`generation = 0` this reduces exactly to the old behaviour.
+
+This also explains why the decay-only model was never visibly wrong: a rate
+fitted from observed data already contains the cell's contribution, so adding
+generation to the projection and adding it back into demand cancel out. The net
+is preserved. Separating the terms changes nothing about *this* projection — it's
+what makes "what if I change the output?" answerable at all.
 
 **No recommendation until both inputs are measured.** The output percentage that
 would hold chlorine steady is only offered once the pool's own demand has been
