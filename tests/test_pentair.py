@@ -202,3 +202,56 @@ def test_close_enough_volumes_are_not_flagged():
 def test_a_missing_volume_is_not_a_mismatch():
     assert pentair.volume_mismatch(None, 20000) is None
     assert pentair.volume_mismatch(15000, None) is None
+
+
+# ---- the notebook that writes itself ----
+
+BEFORE = {"chlorinator_output_pct": 60.0, "setpoint": 81.0, "heater_enabled": True,
+          "volume_gallons": 15000.0, "salt_ppm": 4350.0}
+
+
+def test_a_setting_change_is_detected_and_described_in_plain_words():
+    changes = pentair.detect_changes(BEFORE, {**BEFORE, "chlorinator_output_pct": 50.0})
+    assert len(changes) == 1
+    assert changes[0]["description"] == "Salt cell output changed from 60% to 50%"
+
+
+def test_the_heater_setpoint_carries_its_unit():
+    changes = pentair.detect_changes(BEFORE, {**BEFORE, "setpoint": 84.0})
+    assert "81°F to 84°F" in changes[0]["description"]
+
+
+def test_switching_the_heater_reads_as_on_and_off():
+    changes = pentair.detect_changes(BEFORE, {**BEFORE, "heater_enabled": False})
+    assert "Heater changed from on to off" in changes[0]["description"]
+
+
+def test_nothing_changing_logs_nothing():
+    assert pentair.detect_changes(BEFORE, dict(BEFORE)) == []
+
+
+def test_the_first_ever_read_has_nothing_to_compare_against():
+    assert pentair.detect_changes(None, BEFORE) == []
+
+
+def test_scheduled_pump_and_circuit_activity_is_not_logged_as_a_change():
+    """The pump cycles on its schedule constantly; logging it would bury the
+    handful of entries that represent an actual decision."""
+    noisy = {**BEFORE, "pump_running": False, "circuits": {"Pool": False}}
+    assert pentair.detect_changes({**BEFORE, "pump_running": True}, noisy) == []
+
+
+def test_salt_drifting_slowly_is_ignored_but_a_step_is_recorded():
+    assert pentair.detect_changes(BEFORE, {**BEFORE, "salt_ppm": 4300.0}) == []
+    stepped = pentair.detect_changes(BEFORE, {**BEFORE, "salt_ppm": 4000.0})
+    assert "Salt fell from 4350 to 4000 ppm" in stepped[0]["description"]
+
+
+def test_several_changes_at_once_are_all_recorded():
+    changes = pentair.detect_changes(
+        BEFORE, {**BEFORE, "chlorinator_output_pct": 40.0, "setpoint": 86.0})
+    assert {c["field"] for c in changes} == {"chlorinator_output_pct", "setpoint"}
+
+
+def test_a_missing_value_is_not_reported_as_a_change():
+    assert pentair.detect_changes(BEFORE, {**BEFORE, "setpoint": None}) == []

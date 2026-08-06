@@ -156,6 +156,7 @@ def main():
     for label, step in (
         ("weather export", lambda: export_weather(site_data / "weather.json")),
         ("pool system read", lambda: pentair.export_system(site_data / "system.json")),
+        ("pool log", lambda: pentair.export_log(site_data / "pool_log.json")),
         ("anomaly export", lambda: anomaly.export_anomalies(site_data / "anomalies.json")),
         ("trend summary", lambda: export_summaries(site_data / "history.json", site_data / "summary.json")),
         (

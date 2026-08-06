@@ -22,7 +22,7 @@ Scheduled via com.billfordx.pool-poll.plist.
 import sys
 
 from config import load_dotenv
-from pentair import IntelliCenterError, read_state, store_state
+from pentair import IntelliCenterError, read_state, record_changes, store_state
 
 
 def main():
@@ -35,7 +35,12 @@ def main():
         print(f"pool controller unreachable: {e}", file=sys.stderr)
         return 1
 
+    # Detect before storing - the comparison needs the previous read to still
+    # be the most recent row.
+    changes = record_changes(state)
     store_state(state)
+    for change in changes:
+        print(f"CHANGE: {change['description']}")
     print(
         f"pump={'on' if state['pump_running'] else 'off'} "
         f"temp={state.get('water_temp')} "

@@ -58,6 +58,20 @@ CREATE TABLE IF NOT EXISTS system_snapshots (
     circuits_json TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_system_time ON system_snapshots(read_at);
+
+-- Equipment settings changing, detected by comparing consecutive controller
+-- reads. This is the pool notebook writing itself: the controller knows exactly
+-- what changed and when, so the only part a human needs to supply is why.
+CREATE TABLE IF NOT EXISTS system_changes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    detected_at TEXT NOT NULL,
+    field TEXT NOT NULL,
+    old_value TEXT,
+    new_value TEXT,
+    description TEXT,
+    note TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_changes_time ON system_changes(detected_at);
 """
 
 # Columns added after the original schema shipped. Applied by _migrate() on

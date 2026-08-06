@@ -4,6 +4,11 @@
       "note": "Topping up after finding the cassette holding the skimmer weir open; level was low enough to starve the skimmer",
       "recorded_at": "2026-08-06T14:28:33.274492+00:00",
       "type": "water_added"
+    },
+    "2026-08-06T15:53:10.664484+00:00": {
+      "note": "Cleared skimmer weir - cassette was holding it open. Also cleaned pump basket.",
+      "recorded_at": "2026-08-06T15:53:10.664687+00:00",
+      "type": "note"
     }
   },
   "measurements": {

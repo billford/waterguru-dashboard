@@ -335,6 +335,12 @@
     </div>
   </div>
 
+  <div class="card" id="logCard" style="display:none;">
+    <h2>Pool log</h2>
+    <div class="card-sub">equipment changes detected automatically, plus anything noted by hand</div>
+    <div id="logEntries"></div>
+  </div>
+
   <div class="card" id="systemCard" style="display:none;">
     <h2>Pool system <span class="card-sub" id="systemSub" style="font-weight:400;"></span></h2>
     <div class="card-sub">live from the Pentair IntelliCenter on the local network</div>
@@ -441,12 +447,14 @@ async function load() {
   state.chlorine = await loadOptional('data/chlorine_forecast.json');
   state.anomalies = await loadOptional('data/anomalies.json');
   state.system = await loadOptional('data/system.json');
+  state.poolLog = await loadOptional('data/pool_log.json');
   render();
   renderSummary();
   renderForecast();
   renderChlorineForecast();
   renderAnomalies();
   renderSystem();
+  renderPoolLog();
   renderSwimMove();
 }
 
@@ -888,6 +896,40 @@ function renderSystem() {
     document.getElementById('systemNoteText').textContent = combined;
   } else {
     note.style.display = 'none';
+  }
+}
+
+function renderPoolLog() {
+  const card = document.getElementById('logCard');
+  const entries = state.poolLog && state.poolLog.entries;
+  if (!entries || !entries.length) { card.style.display = 'none'; return; }
+  card.style.display = '';
+
+  const icons = { equipment: '\u2699\ufe0f', water: '\ud83d\udca7', note: '\ud83d\udcdd' };
+  const wrap = document.getElementById('logEntries');
+  wrap.innerHTML = '';
+  for (const e of entries) {
+    const row = document.createElement('div');
+    row.className = 'anomaly-row';
+    const icon = document.createElement('span');
+    icon.className = 'anomaly-icon';
+    icon.textContent = icons[e.kind] || icons.note;
+    const body = document.createElement('div');
+    const when = document.createElement('div');
+    when.className = 'alert-meta';
+    when.textContent = fmtDate(e.at);
+    const text = document.createElement('div');
+    text.textContent = e.text;
+    body.appendChild(when); body.appendChild(text);
+    // The reason a change was made is the part no device can record.
+    if (e.note) {
+      const why = document.createElement('div');
+      why.className = 'alert-advice';
+      why.textContent = 'why: ' + e.note;
+      body.appendChild(why);
+    }
+    row.appendChild(icon); row.appendChild(body);
+    wrap.appendChild(row);
   }
 }
 

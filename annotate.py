@@ -128,6 +128,18 @@ def main():
     p.add_argument("--note", help="e.g. how much, or why")
     p.set_defaults(func=cmd_water_added)
 
+    p = sub.add_parser("note", help="log a free-text entry against the pool")
+    p.add_argument("text")
+    p.add_argument("--at", help="when, ISO format; defaults to now")
+    p.set_defaults(func=cmd_note)
+
+    p = sub.add_parser("why", help="attach a reason to a detected equipment change")
+    p.add_argument("change", help="change id (see `log`) or a timestamp prefix")
+    p.add_argument("text")
+    p.set_defaults(func=cmd_why)
+
+    sub.add_parser("log", help="timeline of equipment changes and notes").set_defaults(func=cmd_log)
+
     p = sub.add_parser("clear", help="remove a manual verdict")
     p.add_argument("timestamp")
     p.set_defaults(func=cmd_clear)
@@ -135,6 +147,76 @@ def main():
     args = parser.parse_args()
     args.func(args)
 
+
+
+
+def cmd_note(args):
+    """Free-text log entry - the half of a pool notebook a controller can't infer."""
+    events = load_events()
+    when = args.at or datetime.now(timezone.utc).isoformat()
+    events[when] = {"type": "note", "note": args.text,
+                    "recorded_at": datetime.now(timezone.utc).isoformat()}
+    save_events(events)
+    print(f"Logged at {when}: {args.text}")
+
+
+def cmd_why(args):
+    """Attaches a reason to an automatically-detected equipment change.
+
+    The controller already knows what changed and when; this supplies the only
+    part it can't - why you did it.
+    """
+    conn = connect()
+    try:
+        rows = conn.execute(
+            "SELECT id, detected_at, description, note FROM system_changes"
+            " ORDER BY detected_at DESC LIMIT 20"
+        ).fetchall()
+        if not rows:
+            print("No equipment changes recorded yet.")
+            return
+        match = next((r for r in rows if str(r["id"]) == str(args.change)), None)
+        if match is None:
+            match = next((r for r in rows if str(args.change) in (r["detected_at"] or "")), None)
+        if match is None:
+            print(f"No change matching {args.change!r}. Recent changes:", file=sys.stderr)
+            for r in rows[:10]:
+                print(f"  [{r['id']}] {r['detected_at'][:16]}  {r['description']}", file=sys.stderr)
+            sys.exit(1)
+        conn.execute("UPDATE system_changes SET note = ? WHERE id = ?", (args.text, match["id"]))
+        conn.commit()
+        print(f"[{match['id']}] {match['description']}\n   why: {args.text}")
+    finally:
+        conn.close()
+
+
+def cmd_log(args):
+    """One timeline: what the controller saw change, and what you wrote down."""
+    entries = []
+
+    conn = connect()
+    try:
+        for r in conn.execute(
+            "SELECT id, detected_at, description, note FROM system_changes ORDER BY detected_at"
+        ):
+            entries.append((r["detected_at"], "equipment", r["description"], r["note"], r["id"]))
+    finally:
+        conn.close()
+
+    for when, event in load_events().items():
+        kind = event.get("type", "note")
+        label = "water added" if kind == "water_added" else "note"
+        entries.append((when, label, event.get("note") or "", None, None))
+
+    if not entries:
+        print("Nothing logged yet.")
+        return
+
+    for when, kind, text, note, cid in sorted(entries, key=lambda e: e[0] or ""):
+        tag = f"[{cid}] " if cid else ""
+        print(f"{(when or '')[:16]}  {kind:10} {tag}{text}")
+        if note:
+            print(f"{'':18} {'':10} why: {note}")
 
 if __name__ == "__main__":
     main()

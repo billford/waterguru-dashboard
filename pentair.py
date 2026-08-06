@@ -308,6 +308,7 @@ def export_system(out_path, host: str = None, lookback: int = 200) -> dict | Non
 
     conn = connect()
     try:
+        record_changes(state, conn)
         store_state(state, conn)
         history = [
             dict(r)
@@ -358,3 +359,131 @@ if __name__ == "__main__":
 
     load_dotenv()
     print(json.dumps(export_system(Path(__file__).resolve().parent / "site" / "data" / "system.json"), indent=1))
+
+
+# Settings a person changes, as opposed to state that moves on its own. The pump
+# and circuits switch constantly under their schedule, so logging those would
+# bury the handful of entries that actually represent a decision.
+WATCHED_SETTINGS = {
+    "chlorinator_output_pct": ("Salt cell output", "%"),
+    "setpoint": ("Heater setpoint", "°F"),
+    "heater_enabled": ("Heater", ""),
+    "volume_gallons": ("Configured pool volume", " gal"),
+}
+
+# Salt drifts continuously with evaporation and top-ups; only a real step change
+# is worth an entry.
+SALT_STEP_PPM = 150
+
+
+def _fmt(field, value):
+    label, unit = WATCHED_SETTINGS.get(field, (field, ""))
+    if isinstance(value, bool):
+        return "on" if value else "off"
+    if value is None:
+        return "unknown"
+    if isinstance(value, float) and value.is_integer():
+        value = int(value)
+    return f"{value}{unit}"
+
+
+def detect_changes(previous: dict, current: dict) -> list[dict]:
+    """Settings that moved between two controller reads.
+
+    Answers "what did I change, and when?" without anyone having to remember to
+    write it down - which is the half of a pool notebook that never survives
+    contact with actually being at the pool.
+    """
+    if not previous:
+        return []
+
+    changes = []
+    for field, (label, _unit) in WATCHED_SETTINGS.items():
+        old, new = previous.get(field), current.get(field)
+        if old is None or new is None or old == new:
+            continue
+        changes.append({
+            "field": field,
+            "old_value": str(old),
+            "new_value": str(new),
+            "description": f"{label} changed from {_fmt(field, old)} to {_fmt(field, new)}",
+        })
+
+    old_salt, new_salt = previous.get("salt_ppm"), current.get("salt_ppm")
+    if old_salt is not None and new_salt is not None and abs(new_salt - old_salt) >= SALT_STEP_PPM:
+        direction = "rose" if new_salt > old_salt else "fell"
+        changes.append({
+            "field": "salt_ppm",
+            "old_value": str(old_salt),
+            "new_value": str(new_salt),
+            "description": f"Salt {direction} from {old_salt:g} to {new_salt:g} ppm",
+        })
+
+    return changes
+
+
+def record_changes(current: dict, conn=None) -> list[dict]:
+    """Compares against the previous read and logs anything that moved."""
+    from db import connect
+
+    own = conn is None
+    conn = conn or connect()
+    try:
+        row = conn.execute(
+            """SELECT chlorinator_output_pct, setpoint, heater_enabled, volume_gallons, salt_ppm
+               FROM system_snapshots ORDER BY read_at DESC LIMIT 1"""
+        ).fetchone()
+        previous = dict(row) if row else None
+        if previous:
+            previous["heater_enabled"] = bool(previous["heater_enabled"])
+
+        changes = detect_changes(previous, current)
+        for change in changes:
+            conn.execute(
+                """INSERT INTO system_changes (detected_at, field, old_value, new_value, description)
+                   VALUES (?, ?, ?, ?, ?)""",
+                (current["read_at"], change["field"], change["old_value"],
+                 change["new_value"], change["description"]),
+            )
+        conn.commit()
+        return changes
+    finally:
+        if own:
+            conn.close()
+
+
+def export_log(out_path, limit: int = 40) -> dict:
+    """The pool log: what the controller saw change, and what was written down.
+
+    Published so it's readable from a phone at the poolside, which is where the
+    question "why did I change that?" actually gets asked.
+    """
+    from db import connect
+    from trust import load_events
+
+    entries = []
+    conn = connect()
+    try:
+        for r in conn.execute(
+            "SELECT id, detected_at, description, note FROM system_changes"
+            " ORDER BY detected_at DESC LIMIT ?", (limit,)
+        ):
+            entries.append({"at": r["detected_at"], "kind": "equipment",
+                            "text": r["description"], "note": r["note"]})
+    finally:
+        conn.close()
+
+    for when, event in load_events().items():
+        kind = event.get("type", "note")
+        entries.append({
+            "at": when,
+            "kind": "water" if kind == "water_added" else "note",
+            "text": event.get("note") or ("Water added" if kind == "water_added" else ""),
+            "note": None,
+        })
+
+    entries.sort(key=lambda e: e["at"] or "", reverse=True)
+    payload = {"generated_at": datetime.now(timezone.utc).isoformat(), "entries": entries[:limit]}
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(json.dumps(payload, indent=2))
+    return payload
