@@ -751,6 +751,34 @@ the setpoint.
 
 ---
 
+## Log rotation, and why it isn't the usual kind
+
+The poller runs 144 times a day, so anything it prints accumulates forever. But
+rotating these logs has a constraint that isn't obvious:
+
+**launchd opens `StandardOutPath`/`StandardErrorPath` itself and holds the
+descriptor for the life of the process.** Rename or unlink that file and launchd
+carries on writing to the now-unlinked inode — the visible log sits empty, the
+disk fills anyway, and nothing indicates why. It's the classic
+logrotate-without-copytruncate failure, and on a job running every ten minutes
+it would take a long time to notice.
+
+So rotation is split by who owns the descriptor:
+
+- **Python-owned** (`poll.log`) — the process writes it, so ordinary
+  `RotatingFileHandler` renaming is safe. The plist points launchd's stdout at
+  `/dev/null` so it never opens the file at all.
+- **launchd-owned** (the `*.err.log` streams, which must stay with launchd to
+  capture failures before Python starts — a missing interpreter, say) — these
+  are truncated **in place**, preserving the inode, so launchd's `O_APPEND`
+  descriptor keeps writing to the visible file. The tail is kept and a partial
+  first line dropped.
+
+Trimming runs at the start of each fetch and each poll, and a failure in it is
+swallowed: log housekeeping must never be the thing that breaks a run.
+
+---
+
 ## Sensor health
 
 WaterGuru's status flags answer "is the water OK?". They don't answer "is the

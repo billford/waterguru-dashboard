@@ -22,17 +22,24 @@ Scheduled via com.billfordx.pool-poll.plist.
 import sys
 
 from config import load_dotenv
+from logs import rotating_logger, trim_launchd_logs
 from pentair import IntelliCenterError, read_state, record_changes, store_state
+
+# Python owns this file, so RotatingFileHandler can rename it safely. The plist
+# sends launchd's own stdout to /dev/null so it never opens it - see logs.py for
+# why that distinction matters.
+log = rotating_logger("poll", "poll.log")
 
 
 def main():
     load_dotenv()
+    trim_launchd_logs()
     try:
         state = read_state()
     except (IntelliCenterError, OSError) as e:
         # A poller that shouts on every blip is a poller you turn off. The
         # twice-daily run reports controller problems; this one stays quiet.
-        print(f"pool controller unreachable: {e}", file=sys.stderr)
+        log.warning("pool controller unreachable: %s", e)
         return 1
 
     # Detect before storing - the comparison needs the previous read to still
@@ -40,12 +47,12 @@ def main():
     changes = record_changes(state)
     store_state(state)
     for change in changes:
-        print(f"CHANGE: {change['description']}")
-    print(
-        f"pump={'on' if state['pump_running'] else 'off'} "
-        f"temp={state.get('water_temp')} "
-        f"cell={state.get('chlorinator_output_pct')}% "
-        f"salt={state.get('salt_ppm')}"
+        log.info("CHANGE: %s", change["description"])
+    log.info(
+        "pump=%s temp=%s rpm=%s gpm=%s watts=%s cell=%s%% salt=%s",
+        "on" if state["pump_running"] else "off", state.get("water_temp"),
+        state.get("pump_rpm"), state.get("pump_gpm"), state.get("pump_watts"),
+        state.get("chlorinator_output_pct"), state.get("salt_ppm"),
     )
     return 0
 

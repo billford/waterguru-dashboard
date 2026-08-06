@@ -20,8 +20,11 @@
     <integer>600</integer>
     <key>RunAtLoad</key>
     <true/>
+    <!-- Python writes data/poll.log itself with rotation. launchd must not own
+         that file: it holds the fd open, so a rename would leave it writing to
+         an unlinked inode. See logs.py. -->
     <key>StandardOutPath</key>
-    <string>/Users/billfordx/Projects/waterguru/data/poll.log</string>
+    <string>/dev/null</string>
     <key>StandardErrorPath</key>
     <string>/Users/billfordx/Projects/waterguru/data/poll.err.log</string>
 </dict>

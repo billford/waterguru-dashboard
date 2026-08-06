@@ -23,6 +23,7 @@ from pycognito.aws_srp import AWSSRP
 
 import anomaly
 import pentair
+from logs import trim_launchd_logs
 from db import store_snapshot
 from publish import export as export_history
 from alerts import check_and_alert
@@ -127,6 +128,7 @@ def fetch_with_retries(user: str, password: str, attempts: int = MAX_ATTEMPTS, s
 
 def main():
     load_dotenv(HERE / ".env")
+    trim_launchd_logs()
     user = os.environ.get("WG_USER")
     password = os.environ.get("WG_PASS")
     if not user or not password:
