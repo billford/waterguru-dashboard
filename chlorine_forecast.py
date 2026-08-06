@@ -94,8 +94,19 @@ def _cya_factor(cya: float | None) -> float:
     return CYA_BANDS[-1][1]
 
 
-def decay_segments(rows: list[dict]) -> list[dict]:
-    """Per-day chlorine losses between consecutive measurements, dosing excluded."""
+def decay_segments(rows: list[dict], events: dict = None) -> list[dict]:
+    """Per-day chlorine losses between consecutive measurements.
+
+    Two kinds of interval are thrown out rather than fitted:
+
+    - **Chlorine went up.** Someone added some; that says nothing about how fast
+      the pool consumes it.
+    - **Water was added.** Topping up dilutes everything in the pool, so chlorine
+      falls without any of it being consumed. Fitted as decay, a big top-up
+      would look like a catastrophic burn rate and the forecast would predict
+      the pool stripping itself bare within a day.
+    """
+    events = events or {}
     points = []
     for r in rows:
         ts = parse_ts(r.get("latest_measure_time") or r.get("fetched_at"))
@@ -110,6 +121,8 @@ def decay_segments(rows: list[dict]) -> list[dict]:
         drop = v0 - v1
         if drop <= 0:
             continue  # chlorine was added - tells us nothing about natural loss
+        if trust.water_added_between(t0, t1, events):
+            continue  # diluted, not consumed
         temps = [t for t in (temp0, temp1) if t is not None]
         avg_temp = sum(temps) / len(temps) if temps else None
         cya = cya1 if cya1 is not None else cya0
@@ -133,9 +146,9 @@ def decay_segments(rows: list[dict]) -> list[dict]:
     return segments
 
 
-def fit_rate(rows: list[dict]) -> dict:
+def fit_rate(rows: list[dict], events: dict = None) -> dict:
     """Baseline ppm/day loss at REF_TEMP_F, fitted if there's enough history."""
-    segments = decay_segments(rows)
+    segments = decay_segments(rows, events)
     if len(segments) >= MIN_SEGMENTS:
         return {
             "ppm_per_day": round(median(s["normalized_rate"] for s in segments), 3),
@@ -284,7 +297,7 @@ def _pretty(date_str: str) -> str:
 
 def build_forecast(rows: list[dict], target, weather: dict | None, now: datetime = None,
                    cya_target=None, green_min=None, green_max=None,
-                   untrusted: set = None) -> dict:
+                   untrusted: set = None, events: dict = None) -> dict:
     now = now or datetime.now(timezone.utc)
     untrusted = untrusted or set()
     rows = dedupe_by_measurement(rows)
@@ -321,7 +334,7 @@ def build_forecast(rows: list[dict], target, weather: dict | None, now: datetime
     current = latest["free_cl"]
     measured_at = parse_ts(latest.get("latest_measure_time") or latest.get("fetched_at")) or now
 
-    rate = fit_rate(measured)
+    rate = fit_rate(measured, events)
     forecast_temps = _forecast_temps(weather)
     fallback_temp = (
         list(forecast_temps.values())[-1] if forecast_temps else latest.get("water_temp")
@@ -436,6 +449,7 @@ def export_forecast(weather_path: Path, out_path: Path, now: datetime = None):
                 green_min=wb["free_cl_green_min"],
                 green_max=wb["free_cl_green_max"],
                 untrusted=trust.untrusted_keys(rows),
+                events=trust.load_events(),
             )
             payload["water_body_id"] = wb["water_body_id"]
     finally:

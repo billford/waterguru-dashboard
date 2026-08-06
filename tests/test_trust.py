@@ -231,3 +231,50 @@ def test_low_flow_does_not_nag_every_run(db, now):
     ]))
     assert alerts._flow_alerts(db, row, "flounder", now)
     assert alerts._flow_alerts(db, row, "flounder", now) == []
+
+
+# ---- adding water dilutes; it isn't chlorine demand ----
+
+def test_a_top_up_is_not_fitted_as_a_burn_rate():
+    """Diluting 8 ppm to 4 by adding water is not the pool consuming 4 ppm."""
+    from chlorine_forecast import decay_segments
+
+    rows = [
+        {"fetched_at": "2026-08-08T12:00:00+00:00", "latest_measure_time": "2026-08-08T11:00:00.000Z",
+         "free_cl": 8.0, "water_temp": 80.0, "cya": 45.0},
+        {"fetched_at": "2026-08-09T12:00:00+00:00", "latest_measure_time": "2026-08-09T11:00:00.000Z",
+         "free_cl": 4.0, "water_temp": 80.0, "cya": 45.0},
+    ]
+    assert len(decay_segments(rows)) == 1
+    events = {"2026-08-09T06:00:00+00:00": {"type": "water_added"}}
+    assert decay_segments(rows, events) == []
+
+
+def test_a_top_up_outside_the_interval_leaves_the_segment_alone():
+    from chlorine_forecast import decay_segments
+
+    rows = [
+        {"fetched_at": "2026-08-08T12:00:00+00:00", "latest_measure_time": "2026-08-08T11:00:00.000Z",
+         "free_cl": 8.0, "water_temp": 80.0, "cya": 45.0},
+        {"fetched_at": "2026-08-09T12:00:00+00:00", "latest_measure_time": "2026-08-09T11:00:00.000Z",
+         "free_cl": 7.0, "water_temp": 80.0, "cya": 45.0},
+    ]
+    events = {"2026-08-01T06:00:00+00:00": {"type": "water_added"}}
+    assert len(decay_segments(rows, events)) == 1
+
+
+def test_events_and_measurement_verdicts_share_a_file_without_clobbering(tmp_path):
+    path = tmp_path / "annotations.json"
+    trust.save_annotations({"2026-08-05T21:10": {"verdict": "suspect"}}, path)
+    trust.save_events({"2026-08-06T14:00:00+00:00": {"type": "water_added"}}, path)
+
+    assert trust.load_annotations(path)["2026-08-05T21:10"]["verdict"] == "suspect"
+    assert trust.load_events(path)["2026-08-06T14:00:00+00:00"]["type"] == "water_added"
+
+
+def test_other_event_types_do_not_block_a_segment():
+    assert not trust.water_added_between(
+        trust._parse("2026-08-08T00:00:00+00:00"),
+        trust._parse("2026-08-10T00:00:00+00:00"),
+        {"2026-08-09T00:00:00+00:00": {"type": "something_else"}},
+    )

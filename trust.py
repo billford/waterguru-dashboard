@@ -43,17 +43,62 @@ _FLOW_OUTAGE = re.compile(r"No flow sensor report:\s*(\d+)\s*hours?", re.IGNOREC
 
 # ---- annotations ----
 
-def load_annotations(path: Path = None) -> dict:
+def _load_doc(path: Path = None) -> dict:
     path = path or ANNOTATIONS_PATH
     try:
-        return json.loads(path.read_text()).get("measurements", {})
+        return json.loads(path.read_text())
     except (OSError, json.JSONDecodeError):
         return {}
 
 
-def save_annotations(measurements: dict, path: Path = None):
+def _save_doc(doc: dict, path: Path = None):
     path = path or ANNOTATIONS_PATH
-    path.write_text(json.dumps({"measurements": measurements}, indent=2, sort_keys=True) + "\n")
+    path.write_text(json.dumps(doc, indent=2, sort_keys=True) + "\n")
+
+
+def load_annotations(path: Path = None) -> dict:
+    return _load_doc(path).get("measurements", {})
+
+
+def save_annotations(measurements: dict, path: Path = None):
+    doc = _load_doc(path)
+    doc["measurements"] = measurements
+    _save_doc(doc, path)
+
+
+def load_events(path: Path = None) -> dict:
+    """Things done to the pool that the sensor can't see but that explain its numbers."""
+    return _load_doc(path).get("events", {})
+
+
+def save_events(events: dict, path: Path = None):
+    doc = _load_doc(path)
+    doc["events"] = events
+    _save_doc(doc, path)
+
+
+def water_added_between(start, end, events: dict) -> bool:
+    """Was the pool topped up between two measurements?
+
+    Fresh water dilutes everything in it. Chlorine drops, but not because the
+    pool consumed any - so the interval says nothing about demand and must not
+    be fitted as though it did.
+    """
+    for stamp, event in (events or {}).items():
+        if event.get("type") != "water_added":
+            continue
+        when = _parse(stamp)
+        if when is not None and start <= when <= end:
+            return True
+    return False
+
+
+def _parse(value):
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
 
 
 def find_annotation(measure_time: str, annotations: dict) -> dict | None:

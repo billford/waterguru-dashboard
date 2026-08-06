@@ -467,6 +467,24 @@ a record of what happened to the pool, not generated output). **A hand verdict
 always beats the automatic one:** someone standing at the pool with a test kit
 outranks a heuristic.
 
+The same file records **events** — things done to the pool that the sensor can't
+see but which explain its numbers:
+
+```bash
+python annotate.py water-added --note "topped up after the level got low"
+```
+
+Topping up dilutes everything in the pool, so chlorine falls without any of it
+being consumed. Fitted as decay, a large top-up looks like a catastrophic burn
+rate and the forecast predicts the pool stripping itself bare within a day.
+Intervals spanning a recorded top-up are excluded from the fit, the same way
+intervals where chlorine *rose* are — both describe something done to the pool
+rather than something the pool did.
+
+Dilution also drags stabilizer down, which raises the real burn rate, so a
+top-up genuinely does change the chemistry — just not by the amount a naive fit
+would infer.
+
 An untrusted measurement is dropped from the burn-rate fit and the trend
 summary, banner-flagged on the dashboard with its affected tiles dimmed, and any
 dose recommendation derived from it gets a "confirm with a test kit before

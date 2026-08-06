@@ -18,7 +18,7 @@ import sys
 from datetime import datetime, timezone
 
 from db import connect
-from trust import evaluate, load_annotations, save_annotations
+from trust import evaluate, load_annotations, load_events, save_annotations, save_events
 
 
 def _measurements(limit=25):
@@ -56,6 +56,13 @@ def cmd_list(args):
         for reason in v["reasons"]:
             print(f"          {reason}")
 
+    events = load_events()
+    if events:
+        print("\nEvents:")
+        for when, event in sorted(events.items()):
+            note = f" - {event['note']}" if event.get("note") else ""
+            print(f"  {when}  {event.get('type')}{note}")
+
 
 def _set_verdict(key: str, verdict: str, note: str | None):
     annotations = load_annotations()
@@ -75,6 +82,20 @@ def cmd_suspect(args):
 
 def cmd_trust(args):
     _set_verdict(args.timestamp, "trusted", args.note)
+
+
+def cmd_water_added(args):
+    """Records a top-up, so the resulting dilution isn't fitted as chlorine demand."""
+    events = load_events()
+    when = args.timestamp or datetime.now(timezone.utc).isoformat()
+    events[when] = {
+        "type": "water_added",
+        "note": args.note,
+        "recorded_at": datetime.now(timezone.utc).isoformat(),
+    }
+    save_events(events)
+    print(f"Recorded water added at {when}." + (f" ({args.note})" if args.note else ""))
+    print("Readings spanning this point won't be used to fit the chlorine burn rate.")
 
 
 def cmd_clear(args):
@@ -101,6 +122,11 @@ def main():
         p.add_argument("timestamp", help="measurement time, or any unique prefix of it")
         p.add_argument("--note", help="why - shown on the dashboard")
         p.set_defaults(func=func)
+
+    p = sub.add_parser("water-added", help="record a top-up so dilution isn't read as chlorine demand")
+    p.add_argument("timestamp", nargs="?", help="when, ISO format; defaults to now")
+    p.add_argument("--note", help="e.g. how much, or why")
+    p.set_defaults(func=cmd_water_added)
 
     p = sub.add_parser("clear", help="remove a manual verdict")
     p.add_argument("timestamp")

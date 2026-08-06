@@ -1,4 +1,11 @@
 {
+  "events": {
+    "2026-08-06T14:28:33.274350+00:00": {
+      "note": "Topping up after finding the cassette holding the skimmer weir open; level was low enough to starve the skimmer",
+      "recorded_at": "2026-08-06T14:28:33.274492+00:00",
+      "type": "water_added"
+    }
+  },
   "measurements": {
     "2026-08-05T21:10": {
       "note": "Pump had failed with zero flow; measured minutes after circulation was restored. Hand test with a kit came back in range across the board.",
