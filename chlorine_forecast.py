@@ -273,6 +273,11 @@ def _stabilizer_note(cya, cya_target) -> str | None:
     )
 
 
+def _pretty_stamp(ts) -> str:
+    parsed = parse_ts(ts)
+    return parsed.strftime("%b %-d") if parsed else "earlier"
+
+
 def _pretty(date_str: str) -> str:
     return datetime.fromisoformat(date_str).strftime("%a %b %-d")
 
@@ -290,6 +295,15 @@ def build_forecast(rows: list[dict], target, weather: dict | None, now: datetime
     # launders a bad sample into a confident recommendation.
     excluded = [r for r in measured if (r.get("latest_measure_time") or r.get("fetched_at")) in untrusted]
     measured = [r for r in measured if r not in excluded]
+
+    # If the excluded reading is *newer* than the one being projected from, the
+    # card would otherwise quote an older number than the tiles above it and
+    # look simply out of date. Silently falling back is worse than saying why.
+    superseded = (
+        excluded and measured
+        and (excluded[-1].get("latest_measure_time") or "")
+        > (measured[-1].get("latest_measure_time") or "")
+    )
 
     if not measured:
         return {
@@ -371,6 +385,13 @@ def build_forecast(rows: list[dict], target, weather: dict | None, now: datetime
         ),
         "stabilizer_note": _stabilizer_note(cya, cya_target),
         "excluded_measurements": len(excluded),
+        "excluded_note": (
+            f"The most recent reading ({excluded[-1]['free_cl']} ppm, "
+            f"{_pretty_stamp(excluded[-1].get('latest_measure_time'))}) is excluded as unreliable, "
+            "so this projects from the last trusted measurement instead - which is why the number "
+            "here is older than the one in the tiles above."
+            if superseded else None
+        ),
         "model": {
             "ref_temp_f": REF_TEMP_F,
             "q10": Q10,

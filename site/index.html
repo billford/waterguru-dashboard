@@ -345,6 +345,9 @@
     <h2>Chlorine outlook <a class="ai-info-link" href="about-ai.html#chlorine">📐 How this is calculated</a></h2>
     <div class="card-sub" id="clForecastSub"></div>
     <p class="cl-headline" id="clHeadline"></p>
+    <div class="stabilizer-note" id="clExcludedNote" style="display:none;">
+      <span>⚠️</span><span id="clExcludedNoteText"></span>
+    </div>
     <div class="stabilizer-note" id="stabilizerNote" style="display:none;">
       <span>🧪</span><span id="stabilizerNoteText"></span>
     </div>
@@ -449,6 +452,16 @@ function renderChlorineForecast() {
     rate.source === 'fitted'
       ? 'projected from this pool’s own measured burn rate and the NWS forecast'
       : 'projected from a generic pool burn rate and the NWS forecast — not enough history yet to measure this pool’s own';
+
+  // Explains why this card can legitimately quote an older reading than the
+  // tiles above it, instead of just looking stale.
+  const exNote = document.getElementById('clExcludedNote');
+  if (f.excluded_note) {
+    exNote.style.display = '';
+    document.getElementById('clExcludedNoteText').textContent = f.excluded_note;
+  } else {
+    exNote.style.display = 'none';
+  }
 
   const stabNote = document.getElementById('stabilizerNote');
   if (f.stabilizer_note) {

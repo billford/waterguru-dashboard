@@ -99,9 +99,49 @@ def build_alerts(conn, row: dict, now: datetime) -> list[tuple[str, str]]:
     if stale:
         alerts += _once(conn, row, "stale_measurement", [stale], now)
 
+    alerts += _flow_alerts(conn, row, name, now)
     alerts += _reorder_alerts(conn, row, name, now)
     alerts += _anomaly_alerts(conn, row, name, now)
     return alerts
+
+
+def _flow_alerts(conn, row: dict, name: str, now: datetime) -> list[tuple[str, str]]:
+    """Low skimmer flow, which WaterGuru only rates YELLOW but which stops the
+    sensor working entirely.
+
+    The pod draws its test sample from the skimmer, so when flow there falls off
+    it simply stops measuring - and the failure presents as "the dashboard looks
+    out of date" rather than anything pointing at flow. Worth interrupting for,
+    despite not being RED, because every downstream reading depends on it.
+
+    Total system flow can be perfectly healthy while the pod's skimmer is
+    starved: a pump moving 51 gpm overall says nothing about how much of it
+    reaches this particular skimmer.
+    """
+    flow_alert = _find_alert(row.get("alerts_json"), "SKIMMER_FLOW")
+    if not flow_alert or flow_alert.get("condition") not in ("LOW", "VERY_LOW"):
+        return []
+
+    flow = row.get("skimmer_flow")
+    reading = f"Skimmer flow is {flow:g} gpm. " if flow is not None else ""
+    return _once(
+        conn, row, "low_flow",
+        [(
+            f"{name}: skimmer flow too low to measure",
+            reading + "The pod draws its sample through the skimmer, so it will stop taking "
+            "readings until this recovers. Check the skimmer basket, the pump basket, and the "
+            "valves feeding this skimmer - total pump flow can look fine while this one is starved.",
+        )],
+        now,
+    )
+
+
+def _find_alert(alerts_json, source: str) -> dict | None:
+    try:
+        alerts = json.loads(alerts_json) if isinstance(alerts_json, str) else (alerts_json or [])
+    except (TypeError, ValueError):
+        return None
+    return next((a for a in alerts if a.get("source") == source), None)
 
 
 # ---- transition-based ----

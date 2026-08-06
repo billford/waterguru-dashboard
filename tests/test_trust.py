@@ -176,3 +176,58 @@ def test_annotations_survive_a_write_and_read(tmp_path):
 
 def test_a_missing_annotations_file_is_simply_empty(tmp_path):
     assert trust.load_annotations(tmp_path / "nope.json") == {}
+
+
+# ---- the card must not silently quote an older number than the tiles ----
+
+def test_falling_back_to_an_older_reading_is_explained_not_silent():
+    """Otherwise the outlook card just looks out of date next to the tiles."""
+    rows = [
+        {"fetched_at": "2026-08-08T12:00:00+00:00", "latest_measure_time": "2026-08-08T11:00:00.000Z",
+         "free_cl": 9.8, "water_temp": 80.0, "cya": 45.0},
+        {"fetched_at": "2026-08-10T12:00:00+00:00", "latest_measure_time": "2026-08-10T11:00:00.000Z",
+         "free_cl": 5.2, "water_temp": 80.0, "cya": 45.0},
+    ]
+    f = build_forecast(rows, 3.0, WEATHER, FORECAST_NOW, untrusted={"2026-08-10T11:00:00.000Z"})
+    assert f["current"]["free_cl"] == 9.8
+    assert "5.2 ppm" in f["excluded_note"]
+    assert "older than the one in the tiles" in f["excluded_note"]
+
+
+def test_excluding_an_older_reading_needs_no_such_explanation():
+    rows = [
+        {"fetched_at": "2026-08-08T12:00:00+00:00", "latest_measure_time": "2026-08-08T11:00:00.000Z",
+         "free_cl": 9.8, "water_temp": 80.0, "cya": 45.0},
+        {"fetched_at": "2026-08-10T12:00:00+00:00", "latest_measure_time": "2026-08-10T11:00:00.000Z",
+         "free_cl": 5.2, "water_temp": 80.0, "cya": 45.0},
+    ]
+    f = build_forecast(rows, 3.0, WEATHER, FORECAST_NOW, untrusted={"2026-08-08T11:00:00.000Z"})
+    assert f["current"]["free_cl"] == 5.2
+    assert f["excluded_note"] is None
+
+
+# ---- low skimmer flow stops the sensor working, so it earns a push ----
+
+def test_low_skimmer_flow_alerts_even_though_waterguru_calls_it_yellow(db, now):
+    row = snapshot(skimmer_flow=3.0, alerts_json=json.dumps([
+        {"source": "SKIMMER_FLOW", "condition": "LOW", "status": "YELLOW", "text": "Skimmer Flow low"},
+    ]))
+    fired = alerts._flow_alerts(db, row, "flounder", now)
+    assert fired
+    title, message = fired[0]
+    assert "too low to measure" in title
+    assert "3 gpm" in message
+    assert "valves" in message
+
+
+def test_healthy_flow_stays_quiet(db, now):
+    row = snapshot(skimmer_flow=51.0, alerts_json="[]")
+    assert alerts._flow_alerts(db, row, "flounder", now) == []
+
+
+def test_low_flow_does_not_nag_every_run(db, now):
+    row = snapshot(skimmer_flow=3.0, alerts_json=json.dumps([
+        {"source": "SKIMMER_FLOW", "condition": "LOW", "status": "YELLOW", "text": "Skimmer Flow low"},
+    ]))
+    assert alerts._flow_alerts(db, row, "flounder", now)
+    assert alerts._flow_alerts(db, row, "flounder", now) == []
