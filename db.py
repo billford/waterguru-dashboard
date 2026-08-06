@@ -40,6 +40,24 @@ CREATE TABLE IF NOT EXISTS sent_notifications (
     key TEXT PRIMARY KEY,
     sent_at TEXT NOT NULL
 );
+
+-- Pool equipment state from the Pentair IntelliCenter. Separate table because
+-- it's a different device on a different clock: read every fetch, and it
+-- reports what the system is *doing* rather than what the water contains.
+CREATE TABLE IF NOT EXISTS system_snapshots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    read_at TEXT NOT NULL,
+    water_temp REAL,
+    setpoint REAL,
+    volume_gallons REAL,
+    pump_running INTEGER,
+    heater_enabled INTEGER,
+    heater_calling INTEGER,
+    chlorinator_output_pct REAL,
+    salt_ppm REAL,
+    circuits_json TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_system_time ON system_snapshots(read_at);
 """
 
 # Columns added after the original schema shipped. Applied by _migrate() on

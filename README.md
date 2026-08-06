@@ -494,6 +494,47 @@ rather than projecting anyway.
 
 ---
 
+## The pool controller (Pentair IntelliCenter)
+
+The WaterGuru sensor reports what's *in* the water. The Pentair IntelliCenter
+that runs the pump, gas heater, salt cell, lights and water features reports
+what the system is *doing* — which is often the explanation for what the sensor
+sees. It answers on port 6680 over a local WebSocket with no authentication, so
+`pentair.py` reads it directly. **It is strictly read-only**: the same API would
+happily start the heater, and this code never writes.
+
+Set `PENTAIR_HOST` in `.env`. To find it: `nmap -p 6680 192.168.1.0/24`, or the
+controller advertises itself over mDNS.
+
+Protocol notes, since it's undocumented and the shape isn't obvious:
+
+- `GetQuery/GetHardwareDefinition` returns the object tree, but nested children
+  live under `CIRCUITS`, not the `OBJLIST` the top level suggests.
+- `GetQuery/GetConfiguration` is what actually lists bodies, circuits, features.
+- **`GetParamList` answers under `objectList`; `GetQuery` answers under
+  `answer`.** Read the wrong key and a perfectly good `200` looks empty.
+- `objnam: "ALL"` and `condition: "OBJTYP=..."` aren't supported on IC 2.019 —
+  objects must be named explicitly, so they're discovered from the config first.
+
+### What it changed
+
+- **This pool has a salt cell, running at 60%.** Chlorine isn't only decaying
+  here, it's being *generated* whenever the pump runs. The chlorine forecast's
+  "assumes no chlorine is added" is wrong for this pool — see the caveat there.
+- **The two systems disagree about pool volume**: the controller says 15,000
+  gallons, WaterGuru is configured for 20,000. WaterGuru sizes every dose
+  recommendation from its own figure, so if the controller is right, doses like
+  "add 73 cups of calcium chloride" are ~33% too high. The dashboard flags the
+  disagreement rather than picking a winner — the controller's number is only
+  whatever was entered at installation.
+- **Salt at 4,350 ppm** is above the ~3,000–3,500 these cells want. Too high
+  doesn't sanitize better; it corrodes fittings and can fault the cell.
+- **A cell at 60% while stabilizer sits near 10 ppm** is the whole story in one
+  line: chlorine is being generated hard and destroyed by sunlight almost as
+  fast. Raising CYA does more than raising output.
+
+---
+
 ## Sensor health
 
 WaterGuru's status flags answer "is the water OK?". They don't answer "is the

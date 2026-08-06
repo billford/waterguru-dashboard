@@ -335,6 +335,15 @@
     </div>
   </div>
 
+  <div class="card" id="systemCard" style="display:none;">
+    <h2>Pool system <span class="card-sub" id="systemSub" style="font-weight:400;"></span></h2>
+    <div class="card-sub">live from the Pentair IntelliCenter on the local network</div>
+    <div class="tiles" id="systemTiles"></div>
+    <div class="stabilizer-note" id="systemNote" style="display:none;">
+      <span>🧂</span><span id="systemNoteText"></span>
+    </div>
+  </div>
+
   <div class="card" id="panelCard" style="display:none;">
     <h2>Full chemistry panel</h2>
     <div class="card-sub" id="panelSub"></div>
@@ -410,7 +419,7 @@
 </div>
 
 <script>
-const state = { data: null, rangeDays: 30, summary: null, weather: null, advice: null, chlorine: null, anomalies: null };
+const state = { data: null, rangeDays: 30, summary: null, weather: null, advice: null, chlorine: null, anomalies: null, system: null };
 
 async function loadOptional(path) {
   try {
@@ -431,11 +440,13 @@ async function load() {
   state.advice = await loadOptional('data/swim_advice.json');
   state.chlorine = await loadOptional('data/chlorine_forecast.json');
   state.anomalies = await loadOptional('data/anomalies.json');
+  state.system = await loadOptional('data/system.json');
   render();
   renderSummary();
   renderForecast();
   renderChlorineForecast();
   renderAnomalies();
+  renderSystem();
   renderSwimMove();
 }
 
@@ -824,6 +835,65 @@ function renderTiles(latest, lastChem, targets, freshness) {
     el.querySelector('.sub').textContent = it.sub || '';
     tiles.appendChild(el);
   }
+}
+
+// The IntelliCenter reports what the equipment is *doing*, which the WaterGuru
+// sensor can only see the consequences of - most importantly that a salt cell
+// is generating chlorine whenever the pump runs.
+function renderSystem() {
+  const card = document.getElementById('systemCard');
+  const s = state.system;
+  if (!s) { card.style.display = 'none'; return; }
+  card.style.display = '';
+
+  document.getElementById('systemSub').textContent =
+    s.pump_running ? '· pump running' : '· pump off';
+
+  const heater = !s.heater_enabled ? 'off'
+    : s.heater_calling ? 'heating' : 'idle (at setpoint)';
+
+  const items = [
+    { label: 'Water temp', value: fmtNum(s.water_temp), unit: '°F' },
+    { label: 'Heater', value: heater, sub: s.setpoint != null ? 'setpoint ' + s.setpoint + '°F' : '' },
+    { label: 'Salt cell output', value: fmtNum(s.chlorinator_output_pct), unit: '%' },
+    { label: 'Salt', value: fmtNum(s.salt_ppm), unit: 'ppm' },
+    { label: 'Pool volume', value: fmtNum(s.volume_gallons), unit: 'gal' },
+  ];
+  const on = Object.entries(s.circuits || {}).filter(([, v]) => v).map(([k]) => k);
+  if (on.length) items.push({ label: 'Circuits on', value: on.length, sub: on.join(', ') });
+
+  const wrap = document.getElementById('systemTiles');
+  wrap.innerHTML = '';
+  for (const it of items) {
+    const el = document.createElement('div');
+    el.className = 'tile';
+    el.innerHTML = '<div class="label"></div><div class="value"></div><div class="sub"></div>';
+    el.querySelector('.label').textContent = it.label;
+    const valEl = el.querySelector('.value');
+    valEl.textContent = it.value == null ? '—' : it.value;
+    if (it.unit) {
+      const u = document.createElement('span');
+      u.className = 'unit';
+      u.textContent = it.unit;
+      valEl.appendChild(u);
+    }
+    el.querySelector('.sub').textContent = it.sub || '';
+    wrap.appendChild(el);
+  }
+
+  const note = document.getElementById('systemNote');
+  const combined = [s.volume_mismatch, s.system_note].filter(Boolean).join(' ');
+  if (combined) {
+    note.style.display = '';
+    document.getElementById('systemNoteText').textContent = combined;
+  } else {
+    note.style.display = 'none';
+  }
+}
+
+function fmtNum(v) {
+  if (v == null) return null;
+  return Number.isInteger(v) ? v : Math.round(v * 10) / 10;
 }
 
 function isUntrusted(chem) {

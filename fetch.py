@@ -22,6 +22,7 @@ from pycognito import Cognito
 from pycognito.aws_srp import AWSSRP
 
 import anomaly
+import pentair
 from db import store_snapshot
 from publish import export as export_history
 from alerts import check_and_alert
@@ -154,6 +155,7 @@ def main():
     # here should leave the readings published, not take the whole run down.
     for label, step in (
         ("weather export", lambda: export_weather(site_data / "weather.json")),
+        ("pool system read", lambda: pentair.export_system(site_data / "system.json")),
         ("anomaly export", lambda: anomaly.export_anomalies(site_data / "anomalies.json")),
         ("trend summary", lambda: export_summaries(site_data / "history.json", site_data / "summary.json")),
         (
