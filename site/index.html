@@ -441,9 +441,15 @@ async function loadOptional(path) {
 }
 
 async function load() {
-  const res = await fetch('data/history.json', { cache: 'no-store' });
-  const json = await res.json();
-  state.data = json;
+  try {
+    const res = await fetch('data/history.json', { cache: 'no-store' });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    state.data = await res.json();
+  } catch (e) {
+    console.error('could not load history.json', e);
+    showBanner('Could not load pool data (' + e.message + '). Nothing below is current.');
+    return;
+  }
   state.summary = await loadOptional('data/summary.json');
   state.weather = await loadOptional('data/weather.json');
   state.advice = await loadOptional('data/swim_advice.json');
@@ -451,14 +457,42 @@ async function load() {
   state.anomalies = await loadOptional('data/anomalies.json');
   state.system = await loadOptional('data/system.json');
   state.poolLog = await loadOptional('data/pool_log.json');
-  render();
-  renderSummary();
-  renderForecast();
-  renderChlorineForecast();
-  renderAnomalies();
-  renderSystem();
-  renderPoolLog();
-  renderSwimMove();
+  // Each card renders independently. Previously these ran as a bare sequence,
+  // so the first throw aborted every one after it: a single missing field in an
+  // *optional* file blanked five cards, and a missing `targets` blanked the
+  // whole page below the hero.
+  for (const [name, fn] of [
+    ['readings', render],
+    ['trend summary', renderSummary],
+    ['swim forecast', renderForecast],
+    ['chlorine outlook', renderChlorineForecast],
+    ['sensor health', renderAnomalies],
+    ['pool system', renderSystem],
+    ['pool log', renderPoolLog],
+    ['swim tip', renderSwimMove],
+  ]) {
+    try {
+      fn();
+    } catch (e) {
+      console.error('failed to render ' + name, e);
+      showBanner('The "' + name + '" section could not be rendered — the rest of the page is unaffected.');
+    }
+  }
+}
+
+// A page-level failure notice. Without one, a dashboard that failed to load its
+// data was indistinguishable from a pool with nothing to report.
+function showBanner(message) {
+  let el = document.getElementById('pageBanner');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'pageBanner';
+    el.className = 'trust-banner';
+    document.querySelector('.wrap').prepend(el);
+  }
+  const line = document.createElement('div');
+  line.textContent = message;
+  el.appendChild(line);
 }
 
 function renderChlorineForecast() {
@@ -541,7 +575,9 @@ function renderChlorineForecast() {
   // in timezones behind UTC.
   let proj = f.projection;
   const floorIdx = proj.findIndex(p => p.free_cl <= 0);
-  if (floorIdx > 0) proj = proj.slice(0, floorIdx + 1);
+  // >= 0, not > 0: a projection already at zero drew the full flat line to
+  // the horizon, which is exactly what the truncation exists to avoid.
+  if (floorIdx >= 0) proj = proj.slice(0, floorIdx + 1);
   const points = proj.map(p => ({ t: p.date + 'T12:00:00', free_cl: p.free_cl }));
   renderChart('chart-cl_forecast', points, 'free_cl', 'ppm', cur.target, 'var(--series-1)', { yFloor: 0 });
 
@@ -624,7 +660,7 @@ function renderForecast() {
     img.loading = 'lazy';
     const name = document.createElement('div');
     name.className = 'fd-name';
-    name.textContent = d.name.replace(/^This /, '');
+    name.textContent = (d.name || d.date || '').replace(/^This /, '');
     const temp = document.createElement('div');
     temp.className = 'fd-temp';
     temp.textContent = d.temp_f + '°';
@@ -736,9 +772,10 @@ function fmtDateShort(iso) {
 }
 
 function currentWaterbody() {
-  const wbs = state.data.waterbodies;
+  const wbs = state.data && state.data.waterbodies;
+  if (!wbs) return null;              // the guard used to run AFTER Object.keys
   const id = Object.keys(wbs)[0];
-  return wbs ? wbs[id] : null;
+  return id ? wbs[id] : null;
 }
 
 function inRange(points) {
@@ -787,6 +824,9 @@ function renderStaleBadge(freshness) {
 }
 
 function render() {
+  // Charts are torn out and rebuilt below, so a hovered chart never fires
+  // pointerleave and the shared tooltip would stay pinned with a stale value.
+  hideTooltip();
   const wb = currentWaterbody();
   if (!wb) {
     document.getElementById('poolName').textContent = 'No pool data yet';
@@ -800,7 +840,8 @@ function render() {
   // read fresh on every fetch. They're charted off different clocks.
   const series = inRange(wb.series);
   const tempSeries = inRange(wb.temp_series || []);
-  const lastChem = wb.series[wb.series.length - 1];
+  const chemistry = wb.series || [];
+  const lastChem = chemistry[chemistry.length - 1];
   const latest = wb.latest || lastChem || {};
 
   const pill = document.getElementById('statusPill');
@@ -816,12 +857,13 @@ function render() {
   renderStaleBadge(freshness);
 
   renderTrustBanner(lastChem);
-  renderTiles(latest, lastChem, wb.targets, freshness);
-  renderPanel(lastChem, wb.targets, freshness);
-  renderChart('chart-free_cl', series, 'free_cl', 'ppm', wb.targets.free_cl, 'var(--series-1)');
-  renderChart('chart-ph', series, 'ph', '', wb.targets.ph, 'var(--series-2)');
+  const targets = wb.targets || {};
+  renderTiles(latest, lastChem, targets, freshness);
+  renderPanel(lastChem, targets, freshness);
+  renderChart('chart-free_cl', series, 'free_cl', 'ppm', targets.free_cl, 'var(--series-1)');
+  renderChart('chart-ph', series, 'ph', '', targets.ph, 'var(--series-2)');
   renderChart('chart-water_temp', tempSeries, 'water_temp', '°F', null, 'var(--series-3)');
-  renderChart('chart-skimmer_flow', series, 'skimmer_flow', 'gpm', wb.targets.skimmer_flow, 'var(--series-2)');
+  renderChart('chart-skimmer_flow', series, 'skimmer_flow', 'gpm', targets.skimmer_flow, 'var(--series-2)');
   renderAlerts(lastChem);
   renderTable(series);
 }
@@ -1070,16 +1112,47 @@ function renderAlerts(latest) {
   }
 }
 
+// Built with createElement/textContent rather than an HTML string. This was the
+// only innerHTML sink in the file that received data, and it runs on load even
+// while the table is hidden - so a reading whose `status` contained markup
+// executed with no interaction at all.
 function renderTable(series) {
   const wrap = document.getElementById('tableWrap');
-  if (!series.length) { wrap.innerHTML = '<div class="empty-note">No readings in range.</div>'; return; }
-  let html = '<table class="data-table"><thead><tr><th>Time</th><th>Status</th><th>Temp</th><th>Free Cl</th><th>pH</th><th>Flow</th></tr></thead><tbody>';
-  for (const p of [...series].reverse()) {
-    html += '<tr><td>' + fmtDate(p.t) + '</td><td>' + (p.status || '') + '</td><td>' + (p.water_temp ?? '') +
-      '</td><td>' + (p.free_cl ?? '') + '</td><td>' + (p.ph ?? '') + '</td><td>' + (p.skimmer_flow ?? '') + '</td></tr>';
+  wrap.innerHTML = '';
+  if (!series.length) {
+    const note = document.createElement('div');
+    note.className = 'empty-note';
+    note.textContent = 'No readings in range.';
+    wrap.appendChild(note);
+    return;
   }
-  html += '</tbody></table>';
-  wrap.innerHTML = html;
+
+  const table = document.createElement('table');
+  table.className = 'data-table';
+  const thead = document.createElement('thead');
+  const headRow = document.createElement('tr');
+  for (const label of ['Time', 'Status', 'Temp', 'Free Cl', 'pH', 'Flow']) {
+    const th = document.createElement('th');
+    th.textContent = label;
+    headRow.appendChild(th);
+  }
+  thead.appendChild(headRow);
+  table.appendChild(thead);
+
+  const tbody = document.createElement('tbody');
+  for (const p of [...series].reverse()) {
+    const tr = document.createElement('tr');
+    const cells = [fmtDate(p.t), p.status || '', p.water_temp ?? '',
+                   p.free_cl ?? '', p.ph ?? '', p.skimmer_flow ?? ''];
+    for (const value of cells) {
+      const td = document.createElement('td');
+      td.textContent = value;
+      tr.appendChild(td);
+    }
+    tbody.appendChild(tr);
+  }
+  table.appendChild(tbody);
+  wrap.appendChild(table);
 }
 
 document.getElementById('tableToggle').addEventListener('click', (e) => {
@@ -1101,6 +1174,11 @@ document.getElementById('rangeFilters').addEventListener('click', (e) => {
 // ---- Line chart renderer (single series, SVG, crosshair + tooltip) ----
 const PAD = { top: 16, right: 16, bottom: 24, left: 40 };
 const W = 800, H = 220;
+
+function hideTooltip() {
+  const tooltip = document.getElementById('tooltip');
+  if (tooltip) tooltip.style.opacity = 0;
+}
 
 function renderChart(containerId, series, field, unit, target, colorVar, opts) {
   const container = document.getElementById(containerId);
@@ -1169,7 +1247,7 @@ function renderChart(containerId, series, field, unit, target, colorVar, opts) {
   }
 
   // x-axis time labels (start/end)
-  [0, points.length - 1].forEach(i => {
+  [...new Set([0, points.length - 1])].forEach(i => {
     if (i < 0) return;
     const lbl = document.createElementNS(svgNS, 'text');
     lbl.setAttribute('x', coords[i][0]); lbl.setAttribute('y', H - 6);
