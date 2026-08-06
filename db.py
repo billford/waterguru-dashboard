@@ -1,6 +1,7 @@
 """SQLite storage for parsed WaterGuru snapshots."""
 import json
 import sqlite3
+from datetime import datetime, timezone
 from pathlib import Path
 
 DB_PATH = Path(__file__).resolve().parent / "data" / "waterguru.db"
@@ -135,6 +136,18 @@ def connect(db_path: Path = None) -> sqlite3.Connection:
 
 def was_sent(conn: sqlite3.Connection, key: str) -> bool:
     return conn.execute("SELECT 1 FROM sent_notifications WHERE key = ?", (key,)).fetchone() is not None
+
+
+def last_sent_at(conn: sqlite3.Connection, key: str):
+    """When this notification last fired, or None. Drives elapsed-time re-nags."""
+    row = conn.execute("SELECT sent_at FROM sent_notifications WHERE key = ?", (key,)).fetchone()
+    if not row or not row["sent_at"]:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(row["sent_at"]).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
 
 
 def mark_sent(conn: sqlite3.Connection, key: str, sent_at: str):
@@ -305,7 +318,7 @@ def store_snapshot(fetched_at: str, data: dict, db_path: Path = None):
         for row in rows:
             prev = conn.execute(
                 """SELECT status, cassette_status, battery_status, latest_measure_time,
-                          cassette_pct_left, battery_pct_left
+                          cassette_pct_left, battery_pct_left, cassette_urgent
                    FROM snapshots WHERE water_body_id = ?
                    ORDER BY fetched_at DESC LIMIT 1""",
                 (row["water_body_id"],),
@@ -315,6 +328,7 @@ def store_snapshot(fetched_at: str, data: dict, db_path: Path = None):
             row["prev_battery_status"] = prev["battery_status"] if prev else None
             row["prev_measure_time"] = prev["latest_measure_time"] if prev else None
             row["prev_cassette_pct_left"] = prev["cassette_pct_left"] if prev else None
+            row["prev_cassette_urgent"] = prev["cassette_urgent"] if prev else None
             row["prev_battery_pct_left"] = prev["battery_pct_left"] if prev else None
             conn.execute(
                 """INSERT INTO snapshots (

@@ -28,7 +28,7 @@ import dosing
 import trust
 from config import load_dotenv
 from consumables import runway, was_replaced
-from db import connect, dedupe_by_measurement, mark_sent, was_sent
+from db import connect, dedupe_by_measurement, last_sent_at, mark_sent, was_sent
 from freshness import stale_measurement_alert
 
 # How long before a standing, non-resetting condition is allowed to nag again.
@@ -202,7 +202,8 @@ def _cassette_alerts(row: dict, name: str) -> list[tuple[str, str]]:
     return _consumable_alerts(
         row, name,
         status_field="cassette_status", prev_status_field="prev_cassette_status",
-        urgent_field="cassette_urgent", pct_field="cassette_pct_left",
+        urgent_field="cassette_urgent", prev_urgent_field="prev_cassette_urgent",
+        pct_field="cassette_pct_left",
         time_field="cassette_days_left",
         low_title="replace the cassette", low_fallback="Cassette is running low.",
         ok_title="cassette replaced", ok_message="Cassette level is back to normal.",
@@ -213,15 +214,19 @@ def _battery_alerts(row: dict, name: str) -> list[tuple[str, str]]:
     return _consumable_alerts(
         row, name,
         status_field="battery_status", prev_status_field="prev_battery_status",
-        urgent_field=None, pct_field="battery_pct_left",
+        urgent_field=None, prev_urgent_field=None, pct_field="battery_pct_left",
         time_field="battery_time_left",
         low_title="pod battery low", low_fallback="Pod battery is running low.",
         ok_title="pod battery replaced", ok_message="Battery level is back to normal.",
     )
 
 
+def _needs_action(status, urgent) -> bool:
+    return status == "RED" or bool(urgent)
+
+
 def _consumable_alerts(row, name, *, status_field, prev_status_field, urgent_field,
-                       pct_field, time_field, low_title, low_fallback,
+                       prev_urgent_field, pct_field, time_field, low_title, low_fallback,
                        ok_title, ok_message) -> list[tuple[str, str]]:
     """Shared RED-edge / recovered-edge logic for the cassette and the battery."""
     status = row.get(status_field)
@@ -229,8 +234,12 @@ def _consumable_alerts(row, name, *, status_field, prev_status_field, urgent_fie
     if status is None:
         return []
 
-    needs_action = status == "RED" or (urgent_field and row.get(urgent_field))
-    was_flagged = prev_status == "RED"
+    # The edge must be computed from the SAME condition that triggers, or the
+    # two disagree: `status=YELLOW, urgent=1` satisfied needs_action but never
+    # was_flagged, so it re-fired on every run forever - and the reverse case
+    # announced "replaced" while the consumable was still flagged urgent.
+    needs_action = _needs_action(status, row.get(urgent_field) if urgent_field else None)
+    was_flagged = _needs_action(prev_status, row.get(prev_urgent_field) if prev_urgent_field else None)
 
     if needs_action and not was_flagged:
         pct = row.get(pct_field)
@@ -239,7 +248,7 @@ def _consumable_alerts(row, name, *, status_field, prev_status_field, urgent_fie
         detail = ", ".join(x for x in [pct_text, remaining] if x)
         return [(f"{name}: {low_title}", detail or low_fallback)]
 
-    if was_flagged and status != "RED":
+    if was_flagged and not needs_action:
         return [(f"{name}: {ok_title}", ok_message)]
 
     return []
@@ -250,15 +259,20 @@ def _consumable_alerts(row, name, *, status_field, prev_status_field, urgent_fie
 def _once(conn, row, key_suffix, alerts, now, renag_days: int = RENAG_DAYS):
     """Passes alerts through only if this condition hasn't fired recently.
 
-    The key buckets by week so a condition that never resets still re-surfaces
-    every RENAG_DAYS rather than being muted forever after one notification.
+    Measured against when it last fired, not a fixed calendar grid. Bucketing on
+    `toordinal() // renag_days` meant the gap between re-nags was anywhere from
+    one day to seven, depending where in the bucket the first alert landed.
     """
     if not alerts:
         return []
-    bucket = (now.toordinal() // renag_days) if renag_days else 0
-    key = f"{key_suffix}:{row.get('water_body_id')}:{bucket}"
-    if was_sent(conn, key):
-        return []
+
+    key = f"{key_suffix}:{row.get('water_body_id')}"
+    last = last_sent_at(conn, key)
+    if last is not None and renag_days:
+        elapsed_days = (now - last).total_seconds() / 86400
+        if elapsed_days < renag_days:
+            return []
+
     mark_sent(conn, key, now.isoformat())
     return alerts
 
@@ -285,7 +299,14 @@ def _reorder_alerts(conn, row: dict, name: str, now: datetime) -> list[tuple[str
             conn.commit()
             continue
 
-        if not info["needs_reorder"] or was_sent(conn, key):
+        if not info["needs_reorder"]:
+            continue
+
+        # Re-nag rather than firing once ever: the record was previously written
+        # *before* the push was attempted, and ntfy failures are swallowed, so a
+        # single transient 5xx silently cost the whole depletion cycle.
+        last = last_sent_at(conn, key)
+        if last is not None and (now - last).total_seconds() / 86400 < RENAG_DAYS:
             continue
 
         mark_sent(conn, key, now.isoformat())

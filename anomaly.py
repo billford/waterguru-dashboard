@@ -19,6 +19,8 @@ Three failure shapes worth catching:
 Everything here works off deduped measurements, so "5 readings" means five
 genuine measurements, not five fetches of the same one.
 """
+from datetime import datetime, timezone
+
 from freshness import parse_ts
 
 # How many consecutive identical measurements before a flat series is suspicious.
@@ -35,6 +37,14 @@ MAX_DAILY_CHANGE = {
 
 # How many consecutive nulls before a channel counts as having dropped out.
 MISSING_READINGS = 3
+
+# The jump allowance stops growing past this. Beyond a few days, "how much could
+# this plausibly have moved" stops being a useful question.
+MAX_GAP_SCALING_DAYS = 3.0
+
+# A jump older than this is history, not news - it shouldn't be reported in the
+# present tense on every run forever.
+JUMP_FRESHNESS_DAYS = 7.0
 
 FIELD_LABELS = {
     "free_cl": "free chlorine",
@@ -53,6 +63,8 @@ def _values(rows: list[dict], field: str) -> list:
 
 
 def detect_flatline(rows: list[dict], field: str, threshold: int = FLATLINE_READINGS) -> dict | None:
+    # Nulls are stripped before the tail is taken, so the count below refers to
+    # readings that actually reported, not to calendar measurements.
     values = [v for v in _values(rows, field) if v is not None]
     if len(values) < threshold:
         return None
@@ -65,16 +77,17 @@ def detect_flatline(rows: list[dict], field: str, threshold: int = FLATLINE_READ
         "value": tail[0],
         "readings": threshold,
         "text": (
-            f"{_label(field)} has read exactly {tail[0]} for the last {threshold} measurements. "
+            f"{_label(field)} has read exactly {tail[0]} for the last {threshold} readings that reported. "
             "That's flatter than a real pool drifts - worth checking the cassette."
         ),
     }
 
 
-def detect_jump(rows: list[dict], field: str) -> dict | None:
+def detect_jump(rows: list[dict], field: str, now=None) -> dict | None:
     limit = MAX_DAILY_CHANGE.get(field)
     if limit is None:
         return None
+    now = now or datetime.now(timezone.utc)
 
     points = [
         (parse_ts(r.get("latest_measure_time") or r.get("fetched_at")), r.get(field))
@@ -85,9 +98,21 @@ def detect_jump(rows: list[dict], field: str) -> dict | None:
         return None
 
     (t_prev, v_prev), (t_last, v_last) = points[-2], points[-1]
-    gap_days = max((t_last - t_prev).total_seconds() / 86400, 0.5)
+    gap_days = (t_last - t_prev).total_seconds() / 86400
+
+    # Capped. Scaling the allowance linearly with an unbounded gap switched the
+    # check off exactly when it was most needed: across a 20-day outage the
+    # chlorine limit became 160 ppm and the pH limit 24 units, so a pod coming
+    # back reporting garbage could never trip it.
+    scaled_gap = min(max(gap_days, 0.5), MAX_GAP_SCALING_DAYS)
     change = abs(v_last - v_prev)
-    if change <= limit * gap_days:
+    if change <= limit * scaled_gap:
+        return None
+
+    # points[-1] is the newest *non-null* reading, which after a dropout can be
+    # weeks old. Without this the finding fired forever, present tense, next to
+    # the (correct) "stopped reporting" finding.
+    if (now - t_last).total_seconds() / 86400 > JUMP_FRESHNESS_DAYS:
         return None
 
     return {
@@ -96,6 +121,7 @@ def detect_jump(rows: list[dict], field: str) -> dict | None:
         "from": v_prev,
         "to": v_last,
         "gap_days": round(gap_days, 1),
+        "at": t_last.isoformat(),
         "text": (
             f"{_label(field)} jumped from {v_prev} to {v_last} in "
             f"{round(gap_days, 1)} days, which is more than it can really move. "
