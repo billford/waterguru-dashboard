@@ -498,8 +498,30 @@ function showBanner(message) {
 function renderChlorineForecast() {
   const card = document.getElementById('clForecastCard');
   const f = state.chlorine;
-  if (!f || !f.available || !f.projection || !f.projection.length) { card.style.display = 'none'; return; }
+  if (!f) { card.style.display = 'none'; return; }
   card.style.display = '';
+
+  // When the model declines to project, say so in place of the chart rather
+  // than removing the card - a section that silently disappears is the same
+  // failure as a section that confidently lies.
+  const projectable = f.available && f.projection && f.projection.length;
+  for (const id of ['clEst', 'chart-cl_forecast', 'clMeta']) {
+    const el = document.getElementById(id);
+    if (el) el.style.display = projectable ? '' : 'none';
+  }
+  if (!projectable) {
+    document.getElementById('clHeadline').textContent = f.headline || '';
+    document.getElementById('clForecastSub').textContent = 'no projection available yet';
+    const stab = document.getElementById('stabilizerNote');
+    if (f.stabilizer_note) {
+      stab.style.display = '';
+      document.getElementById('stabilizerNoteText').textContent = f.stabilizer_note;
+    } else {
+      stab.style.display = 'none';
+    }
+    document.getElementById('clExcludedNote').style.display = 'none';
+    return;
+  }
 
   document.getElementById('clHeadline').textContent = f.headline;
 
