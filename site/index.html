@@ -364,6 +364,14 @@
     <h2>Full chemistry panel</h2>
     <div class="card-sub" id="panelSub"></div>
     <div class="tiles" id="panelTiles"></div>
+    <div class="trust-banner" id="lsiNote" style="display:none;">
+      <span>⚖️</span>
+      <div>
+        <b id="lsiHeading"></b>
+        <span id="lsiText"></span>
+        <div class="trust-how" id="lsiLever"></div>
+      </div>
+    </div>
   </div>
 
   <div class="card" id="clForecastCard" style="display:none;">
@@ -892,7 +900,7 @@ function render() {
   renderTrustBanner(lastChem);
   const targets = wb.targets || {};
   renderTiles(latest, lastChem, targets, freshness);
-  renderPanel(lastChem, targets, freshness);
+  renderPanel(lastChem, targets, freshness, wb.lsi);
   renderChart('chart-free_cl', series, 'free_cl', 'ppm', targets.free_cl, 'var(--series-1)');
   renderChart('chart-ph', series, 'ph', '', targets.ph, 'var(--series-2)');
   renderChart('chart-water_temp', tempSeries, 'water_temp', '°F', null, 'var(--series-3)');
@@ -1114,7 +1122,8 @@ const PANEL_ITEMS = [
   { key: 'th',  source: 'TH',  label: 'Total hardness',   unit: 'ppm' },
 ];
 
-function renderPanel(lastChem, targets, freshness) {
+function renderPanel(lastChem, targets, freshness, saturation) {
+  renderLsi(saturation);
   const card = document.getElementById('panelCard');
   const chem = lastChem || {};
   const present = PANEL_ITEMS.filter(it => chem[it.key] !== null && chem[it.key] !== undefined);
@@ -1147,6 +1156,18 @@ function renderPanel(lastChem, targets, freshness) {
 // Absence of an alert means "nothing wrong with this reading" - but only if
 // there IS a reading. Returning GREEN unconditionally rendered a missing value
 // as a fresh, in-range one, complete with the green stripe.
+// The panel numbers individually say little; together they say whether the
+// water is dissolving the pool or scaling it.
+function renderLsi(saturation) {
+  const box = document.getElementById('lsiNote');
+  if (!saturation || saturation.verdict === 'balanced') { box.style.display = 'none'; return; }
+  box.style.display = '';
+  document.getElementById('lsiHeading').textContent =
+    saturation.verdict === 'corrosive' ? 'This water is aggressive' : 'This water is scaling';
+  document.getElementById('lsiText').textContent = saturation.text;
+  document.getElementById('lsiLever').textContent = saturation.lever || '';
+}
+
 function statusFor(point, source, value) {
   if (value === null || value === undefined) return null;
   const a = (point.alerts || []).find(x => x.source === source);

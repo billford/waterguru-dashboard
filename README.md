@@ -779,6 +779,41 @@ swallowed: log housekeeping must never be the thing that breaks a run.
 
 ---
 
+## Saturation index — is the water dissolving the pool?
+
+Five numbers already collected (pH, alkalinity, calcium, stabilizer,
+temperature) say nothing individually about the question that actually damages a
+pool: is this water hungry for calcium, or oversupplied with it? Below
+saturation it takes calcium from whatever it can reach — in a plaster pool, the
+plaster. Above it, calcium deposits on the salt cell and the heater.
+
+```
+LSI = pH + temperature factor + calcium factor + alkalinity factor − K
+```
+
+Two corrections that are easy to miss, and both change the *verdict* rather than
+just the value:
+
+- **Cyanurate is not carbonate alkalinity.** Stabilizer inflates a measured TA
+  reading without providing the buffering LSI cares about, so it's subtracted
+  first. Skipping this overstates the index on any stabilized pool.
+- **K depends on dissolved solids.** The familiar 12.1 is for fresh water. A
+  salt pool carries thousands of ppm, pushing K to **12.4** — a shift of −0.3,
+  which is enough to move a reading from "borderline" to "corrosive". Using the
+  freshwater constant on a salt pool reports the wrong answer, confidently.
+
+The card also names the **biggest lever**, because pH moves the index
+one-for-one and is the fastest thing to change — which makes it the tempting fix
+even when calcium is what's actually wrong. Raising pH on a low-calcium pool
+moves the number without addressing what's driving it.
+
+This is the standard index rather than a novel model, but every input carries
+measurement error and pH dominates the result. It's a direction to investigate,
+not a dosing instruction — particularly while the pH readings themselves are in
+dispute.
+
+---
+
 ## Sensor health
 
 WaterGuru's status flags answer "is the water OK?". They don't answer "is the

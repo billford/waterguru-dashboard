@@ -19,6 +19,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import dosing
+import lsi
 import trust
 from db import connect, dedupe_by_measurement
 from freshness import freshness_for
@@ -107,6 +108,20 @@ def _controller_volume(conn=None) -> float | None:
         return None
 
 
+def _controller_salt(conn=None) -> float | None:
+    """Salt from the controller - the dominant dissolved solid, which sets K."""
+    if conn is None:
+        return None
+    try:
+        row = conn.execute(
+            "SELECT salt_ppm FROM system_snapshots WHERE salt_ppm IS NOT NULL"
+            " ORDER BY read_at DESC LIMIT 1"
+        ).fetchone()
+        return row["salt_ppm"] if row else None
+    except sqlite3.Error:
+        return None
+
+
 def build_payload(rows: list[dict], now: datetime = None, conn=None) -> dict:
     now = now or datetime.now(timezone.utc)
 
@@ -142,6 +157,12 @@ def build_payload(rows: list[dict], now: datetime = None, conn=None) -> dict:
             ],
             "latest": _latest_block(newest),
             "freshness": freshness_for(wb_rows, now),
+            # Ties the five panel numbers together into the question none of
+            # them answers alone: is this water dissolving the pool?
+            "lsi": lsi.calculate(
+                newest.get("ph"), newest.get("water_temp"), newest.get("ch"),
+                newest.get("ta"), newest.get("cya"), _controller_salt(conn),
+            ),
         }
 
     return {
