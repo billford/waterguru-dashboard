@@ -50,11 +50,37 @@ def test_hot_stretch_normalizes_to_a_lower_baseline_rate():
     assert hot["normalized_rate"] < hot["rate_ppm_per_day"]
 
 
-def test_too_little_history_falls_back_to_a_generic_rate_and_says_so():
+def test_one_measured_interval_beats_a_generic_rate():
+    """This pool's own data, however thin, is better than a generic figure -
+    but it is labelled partial rather than dressed up as a fit."""
     rate = fit_rate([reading(1, 5.0), reading(2, 4.0)])
+    assert rate["source"] == "partial"
+    assert rate["ppm_per_day"] == pytest.approx(1.0, abs=0.01)
+    assert rate["confidence"] == "low"
+
+
+def test_no_data_at_all_falls_back_to_generic_only_without_a_cell():
+    rate = fit_rate([reading(1, 5.0)])
     assert rate["source"] == "default"
     assert rate["ppm_per_day"] == DEFAULT_RATE_PPM_PER_DAY
-    assert rate["confidence"] == "low"
+
+
+def test_no_data_and_a_generating_cell_yields_no_rate_at_all():
+    """The generic rate is a NET decline for a pool with no generator. Pairing
+    it with a generation term double-counted: a measurably flat pool projected
+    to 41 ppm in 14 days while the headline called it steady."""
+    rate = fit_rate([reading(1, 5.0)], generation=4.5)
+    assert rate["ppm_per_day"] is None
+    assert rate["source"] == "none"
+
+
+def test_a_generating_cell_with_no_measured_demand_refuses_to_project():
+    system = {"volume_gallons": 15000, "chlorinator_output_pct": 40,
+              "pump_runtime_fraction": 0.99, "runtime_source": "declared"}
+    f = build_forecast([reading(10, 3.0)], 3.0, WEATHER, NOW, system=system)
+    assert f["available"] is False
+    assert "hasn't been measured yet" in f["headline"]
+    assert f["current"]["free_cl"] == 3.0
 
 
 def test_enough_declines_produce_a_fitted_rate():
@@ -91,10 +117,45 @@ def test_chlorine_never_projects_below_zero():
     assert all(p["free_cl"] >= 0 for p in f["projection"])
 
 
-def test_days_beyond_the_weather_forecast_are_flagged_as_assumed():
-    f = build_forecast([reading(10, 8.0)], 3.0, WEATHER, NOW)
-    assert any(p["temp_assumed"] for p in f["projection"])
-    assert not f["projection"][0]["temp_assumed"]
+def test_the_burn_model_runs_on_water_temperature_not_air():
+    """The fit normalizes by water temperature; the projection must re-apply the
+    same quantity or the divide and multiply don't cancel. Projecting on the NWS
+    air forecast overstated a 2.0 ppm/day burn as 3.2."""
+    rows = [reading(d, 30.0 - 2.0 * d, temp=85.0) for d in range(1, 5)]
+    hot_air = {"days": [{"date": f"2026-08-{d:02d}", "temp_f": 95} for d in range(10, 25)]}
+    f = build_forecast(rows, 3.0, hot_air, NOW)
+
+    assert all(p["water_temp_f"] == 85.0 for p in f["projection"])
+    daily_loss = f["projection"][0]["free_cl"] - f["projection"][1]["free_cl"]
+    assert daily_loss == pytest.approx(2.0, abs=0.05)
+
+
+def test_chlorine_climbing_out_of_range_is_reported():
+    """There was a "first day back in range" and a "first day below floor" but
+    no "first day above the ceiling", so a rising projection read as holding."""
+    rising = [{"date": f"2026-08-{d:02d}", "free_cl": v}
+              for d, v in zip(range(10, 18), [4.2, 4.9, 5.6, 6.3, 7.0, 7.7, 8.4, 9.1])]
+    from chlorine_forecast import _first_date_where, _headline
+
+    assert _first_date_where(rising, lambda v: v > 5.4) == "2026-08-12"
+    headline = _headline(4.2, 4.2, 3.0, 5.4, 1.6, "2026-08-10", None,
+                         {"confidence": "medium"}, 0, above_on="2026-08-12")
+    assert "climbing past 5.4" in headline
+    assert "making more than the pool uses" in headline
+
+
+def test_demand_is_un_normalized_by_temperature_as_well_as_stabilizer():
+    """gross_loss restored only CYA, leaving demand pinned at the 80F reference -
+    understating it 2x at 95F water, and halving the recommended output."""
+    rows = [reading(d, 20.0 - 1.0 * d, temp=95.0) for d in range(1, 6)]
+    system = {"volume_gallons": 15000, "chlorinator_output_pct": 40,
+              "pump_runtime_fraction": 0.99, "runtime_source": "declared"}
+    f = build_forecast(rows, 3.0, WEATHER, NOW, system=system)
+    cell = f["salt_cell"]
+
+    from chlorine_forecast import _temp_factor
+    expected = f["rate"]["ppm_per_day"] * _temp_factor(95.0)
+    assert cell["gross_loss_ppm_per_day"] == pytest.approx(expected, abs=0.02)
 
 
 def test_high_chlorine_reports_when_it_returns_to_range():

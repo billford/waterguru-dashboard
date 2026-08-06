@@ -403,6 +403,12 @@ Two details that matter more than they sound:
   low-confidence, rather than presenting a guess in the same voice as a
   measurement.
 
+**The model runs on water temperature, not air.** An earlier version normalized
+the fit by water temperature and re-applied it using the NWS air forecast, which
+does not cancel — it overstated a genuine 2.0 ppm/day burn as 3.2. Water
+temperature is now used at both ends and held at its last measured value across
+the projection, which is reasonable for a heated pool on a setpoint.
+
 **Stabilizer is modelled too.** Cyanuric acid is the single biggest control on
 how fast sunlight destroys chlorine — an unstabilized pool in summer sun can
 lose most of its free chlorine in a day, while 30–50 ppm slows that dramatically

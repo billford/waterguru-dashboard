@@ -15,8 +15,16 @@ day afterwards, because chlorine demand climbs with heat and sun.
 
 **The temperature model is an approximation**, not pool-chemistry gospel: loss
 scales by `Q10 ** ((temp - 80F) / 10)`, a standard rate-doubling-per-10-degrees
-shape with a deliberately gentle exponent. It captures "hot week burns faster"
-without pretending to model UV index or bather load.
+shape with a deliberately gentle exponent.
+
+**It runs on water temperature, not air.** An earlier version normalized the fit
+by measured water temperature and then re-applied the factor using the NWS air
+forecast - two different physical quantities on the same curve, so the divide
+and the multiply did not cancel. A pool genuinely burning 2.0 ppm/day at 85F
+water projected 3.2 ppm/day against a 95F air forecast, and flipped to
+under-predicting in shoulder season. Water temperature is held at its last
+measured value across the projection, which is defensible for a heated pool on
+a setpoint; the air forecast still drives swim advice, just not this.
 
 **Stabilizer is modelled too**, because it's the single biggest control on how
 fast sunlight destroys chlorine, and the device does report it (CYA, on a
@@ -26,15 +34,19 @@ adjustment is a coarse band multiplier, not a photochemistry model.
 
 Both adjustments are applied the same careful way: segments are **divided** by
 their temperature and CYA factors before being pooled into a baseline, then the
-baseline is **multiplied** by the projected day's factors. That normalization is
-what stops the model double-counting - a rate fitted from a hot, unstabilized
-week already has that burn baked in, so re-applying the multiplier on top would
-compound it. It also means the projection responds correctly when conditions
-change: add stabilizer and the same fitted history projects a slower burn.
+baseline is **multiplied** by those factors again wherever it is used. That
+normalization is what stops the model double-counting - a rate fitted from a hot,
+unstabilized week already has that burn baked in. It only works if both ends use
+the *same* quantities, which is the bug described above; every consumer of
+`ppm_per_day` must un-normalize by both factors, not just one.
 
-**With too little history** (fewer than three usable declines) it falls back to
-a generic outdoor-pool loss rate and says so, and the dashboard labels the
-result low-confidence. Better a flagged estimate than a confident fiction.
+**With too little history** it degrades in steps rather than inventing a number.
+One or two usable intervals are still this pool's own data, so they're used and
+labelled `partial` / low-confidence. With *none* at all, a pool with no salt
+cell falls back to a generic outdoor-pool loss rate; a pool *with* one gets no
+projection, because the generic rate is a net decline for a pool that generates
+nothing, and pairing it with a generation term double-counts - it projected a
+measurably flat pool to 41 ppm in fourteen days while calling it steady.
 """
 import json
 from datetime import datetime, timedelta, timezone
@@ -175,10 +187,27 @@ def fit_rate(rows: list[dict], events: dict = None, generation: float = 0.0) -> 
             "ref_temp_f": REF_TEMP_F,
             "confidence": "high" if len(segments) >= 6 else "medium",
         }
+    if segments:
+        # Fewer than MIN_SEGMENTS, but this pool's own measurements beat a
+        # generic figure every time. Flagged low-confidence rather than dressed
+        # up as a fit.
+        return {
+            "ppm_per_day": round(median(s["normalized_rate"] for s in segments), 3),
+            "source": "partial",
+            "segments": len(segments),
+            "ref_temp_f": REF_TEMP_F,
+            "confidence": "low",
+        }
+
+    # Nothing measurable at all. The generic rate is a *net* decline for a pool
+    # with no generator, so pairing it with a generation term double-counts:
+    # a measurably flat pool projected to 41 ppm in 14 days, headline calling it
+    # "holding steady". A pool with a cell has no usable generic demand, so
+    # there is no honest projection to make.
     return {
-        "ppm_per_day": DEFAULT_RATE_PPM_PER_DAY,
-        "source": "default",
-        "segments": len(segments),
+        "ppm_per_day": None if generation else DEFAULT_RATE_PPM_PER_DAY,
+        "source": "none" if generation else "default",
+        "segments": 0,
         "ref_temp_f": REF_TEMP_F,
         "confidence": "low",
     }
@@ -190,53 +219,51 @@ def _forecast_temps(weather: dict | None) -> dict:
     return {d["date"]: d.get("temp_f") for d in weather.get("days", []) if d.get("date")}
 
 
-def project(start_value, start_date, rate_ppm_per_day, forecast_temps, fallback_temp,
+def project(start_value, start_date, rate_ppm_per_day, water_temp,
             horizon=HORIZON_DAYS, cya=None, generation=0.0) -> list[dict]:
     """Steps chlorine forward a day at a time.
 
-    Loss scales with heat and stabilizer; generation from the salt cell is a
-    flat daily addition, since output percentage and pump schedule don't vary
-    with the weather.
+    Loss scales with water temperature and stabilizer; generation from the salt
+    cell is a flat daily addition, since output percentage and pump schedule
+    don't vary with the weather.
+
+    Water temperature is held at its last measured value rather than tracking
+    the air forecast. See `_temp_factor` for why using air temperature here was
+    wrong.
     """
     out = []
     value = start_value
-    cya_factor = _cya_factor(cya)
+    factor = _temp_factor(water_temp) * _cya_factor(cya)
     for i in range(1, horizon + 1):
         day = start_date + timedelta(days=i)
-        key = day.date().isoformat()
-        temp = forecast_temps.get(key)
-        assumed = temp is None
-        if assumed:
-            temp = fallback_temp
-        value = max(0.0, value + generation - rate_ppm_per_day * _temp_factor(temp) * cya_factor)
+        value = max(0.0, value + generation - rate_ppm_per_day * factor)
         out.append(
             {
-                "date": key,
+                "date": day.date().isoformat(),
                 "free_cl": round(value, 2),
-                "temp_f": temp,
-                "temp_assumed": assumed,
+                "water_temp_f": water_temp,
             }
         )
     return out
 
 
-def decay_to_now(value, measured_at, now, rate_ppm_per_day, forecast_temps, fallback_temp, cya=None, generation=0.0):
+def decay_to_now(value, measured_at, now, rate_ppm_per_day, water_temp, cya=None, generation=0.0):
     """Chlorine level right now, decayed forward from the last measurement.
 
     Walks whole days at each day's own temperature, then applies the remaining
     part-day, so a reading taken an hour ago barely moves and one from three
     days ago moves by three days of that period's actual weather.
     """
-    cya_factor = _cya_factor(cya)
-    elapsed = max(0.0, (now - measured_at).total_seconds() / 86400)
-    remaining = elapsed
-    cursor = measured_at
+    # Elapsed days are priced at the same water temperature the fit used. An
+    # earlier version reached into the forecast map, which never contains past
+    # dates, so every stale day silently fell through to the *last* forecast
+    # day's air temperature - five days out, and the wrong quantity besides.
+    factor = _temp_factor(water_temp) * _cya_factor(cya)
+    remaining = max(0.0, (now - measured_at).total_seconds() / 86400)
 
     while remaining > 0:
         step = min(1.0, remaining)
-        temp = forecast_temps.get(cursor.date().isoformat(), fallback_temp)
-        value = max(0.0, value + generation * step - rate_ppm_per_day * _temp_factor(temp) * cya_factor * step)
-        cursor += timedelta(days=step)
+        value = max(0.0, value + generation * step - rate_ppm_per_day * factor * step)
         remaining -= step
 
     return round(value, 2)
@@ -250,7 +277,7 @@ def _first_date_where(projection, predicate):
 
 
 def _headline(measured, estimated, target, ceiling, floor, in_range_on, below_on,
-              rate, stale_days) -> str:
+              rate, stale_days, above_on=None) -> str:
     if measured is None or target is None:
         return "Not enough data yet to project chlorine."
 
@@ -282,6 +309,11 @@ def _headline(measured, estimated, target, ceiling, floor, in_range_on, below_on
         )
     if floor is not None and subject < floor:
         return f"{opening}, below the {floor} ppm bottom of range - it needs topping up."
+    if above_on:
+        return (
+            f"{opening}, in range, but climbing past {ceiling} ppm {hedge}around "
+            f"{_pretty(above_on)} - the cell is making more than the pool uses."
+        )
     if below_on:
         return (
             f"{opening}, in range, dropping below {floor} ppm {hedge}around {_pretty(below_on)}."
@@ -290,7 +322,7 @@ def _headline(measured, estimated, target, ceiling, floor, in_range_on, below_on
 
 
 def _salt_cell_block(rate, gallons, output_pct, runtime, generation, cya,
-                     runtime_source=None) -> dict | None:
+                     runtime_source=None, water_temp=None) -> dict | None:
     """What the cell contributes, and the output that would hold chlorine steady."""
     if not gallons or output_pct is None:
         return None
@@ -303,15 +335,23 @@ def _salt_cell_block(rate, gallons, output_pct, runtime, generation, cya,
     # The fitted rate is a net decline measured while the cell was running, so
     # the pool's real demand is that decline plus whatever the cell was adding.
     # rate is already gross demand - decay_segments adds generation back when
-    # fitting - so it must not be added a second time here.
-    gross_loss = rate["ppm_per_day"] * _cya_factor(cya)
+    # fitting - so it must not be added a second time here. But it is normalized
+    # to REF_TEMP_F by BOTH factors, and un-normalizing only CYA left demand
+    # pinned at the reference temperature: at 95F water that understated it 2x,
+    # and the recommended output with it.
+    gross_loss = (
+        rate["ppm_per_day"] * _temp_factor(water_temp) * _cya_factor(cya)
+        if rate["ppm_per_day"] is not None else None
+    )
 
     # An output recommendation is only offered when both inputs are measured.
     # Derived from a generic loss rate and an assumed pump schedule it would be
     # a guess compounded with a guess - and it would confidently tell you to
     # turn the cell *up* while chlorine is already over the top of range.
     missing = []
-    if not rate_measured:
+    if gross_loss is None:
+        missing.append("the pool's own chlorine demand hasn't been measured yet")
+    elif not rate_measured:
         missing.append("the pool's own chlorine demand hasn't been measured yet "
                        f"({rate['segments']} of {MIN_SEGMENTS} usable intervals)")
     if not runtime_known:
@@ -407,9 +447,12 @@ def build_forecast(rows: list[dict], target, weather: dict | None, now: datetime
     current = latest["free_cl"]
     measured_at = parse_ts(latest.get("latest_measure_time") or latest.get("fetched_at")) or now
 
-    forecast_temps = _forecast_temps(weather)
-    fallback_temp = (
-        list(forecast_temps.values())[-1] if forecast_temps else latest.get("water_temp")
+    # The burn model runs on water temperature, which is what the chlorine is
+    # actually sitting in and what the fit was normalized against. Air forecast
+    # is still used for swim advice, just not here.
+    water_temp = next(
+        (r.get("water_temp") for r in reversed(measured) if r.get("water_temp") is not None),
+        None,
     )
 
     # The cassette measures every day or two, so the last reading is usually
@@ -433,20 +476,48 @@ def build_forecast(rows: list[dict], target, weather: dict | None, now: datetime
     # what the cell was making, so the fit depends on it.
     rate = fit_rate(measured, events, generation)
 
+    # With a generating cell and nothing measured, there is no honest projection
+    # to make - pairing a generic demand figure with the cell's output produced
+    # a flat pool projected to 41 ppm. Report the current state and say why.
+    if rate["ppm_per_day"] is None:
+        return {
+            "generated_at": now.isoformat(),
+            "available": False,
+            "excluded_measurements": len(excluded),
+            "current": {
+                "free_cl": current,
+                "measured_at": latest.get("latest_measure_time") or latest.get("fetched_at"),
+                "measurement_age_days": stale_days,
+                "target": target,
+                "green_min": green_min,
+                "green_max": green_max,
+                "water_temp": water_temp,
+                "cya": cya,
+            },
+            "salt_cell": _salt_cell_block(rate, gallons, output_pct, runtime, generation, cya,
+                                          system.get("runtime_source"), water_temp),
+            "stabilizer_note": _stabilizer_note(cya, cya_target),
+            "headline": (
+                f"Chlorine was {current} ppm at the last reading. This pool's own chlorine "
+                "demand hasn't been measured yet, and with a salt cell generating continuously "
+                "there's no generic figure worth substituting - so no projection is offered "
+                f"until there are {MIN_SEGMENTS} usable intervals between measurements."
+            ),
+        }
+
     estimated_now = decay_to_now(
-        current, measured_at, now, rate["ppm_per_day"], forecast_temps, fallback_temp, cya,
+        current, measured_at, now, rate["ppm_per_day"], water_temp, cya,
         generation=generation,
     )
     projection = [
         {
             "date": now.date().isoformat(),
             "free_cl": estimated_now,
-            "temp_f": forecast_temps.get(now.date().isoformat(), fallback_temp),
-            "temp_assumed": now.date().isoformat() not in forecast_temps,
+            "water_temp_f": water_temp,
             "estimated": True,
         }
     ] + project(
-        estimated_now, now, rate["ppm_per_day"], forecast_temps, fallback_temp,
+        estimated_now, now, rate["ppm_per_day"], water_temp,
         horizon=HORIZON_DAYS, cya=cya, generation=generation,
     )
 
@@ -456,8 +527,16 @@ def build_forecast(rows: list[dict], target, weather: dict | None, now: datetime
     ceiling = green_max if green_max is not None else (target * IN_RANGE_FACTOR if target else None)
     floor = green_min if green_min is not None else target
 
+    starts_in_range = ceiling is None or estimated_now <= ceiling
     in_range_on = _first_date_where(projection, lambda v: v <= ceiling) if ceiling else None
     below_target_on = _first_date_where(projection, lambda v: v < floor) if floor else None
+    # A rising projection was previously invisible: there was a "first day back
+    # in range" and a "first day below the floor" but no "first day above the
+    # ceiling", so chlorine climbing past the top reported "in range and holding".
+    above_range_on = (
+        _first_date_where(projection, lambda v: v > ceiling)
+        if ceiling and starts_in_range else None
+    )
 
     return {
         "generated_at": now.isoformat(),
@@ -478,12 +557,13 @@ def build_forecast(rows: list[dict], target, weather: dict | None, now: datetime
         "projection": projection,
         "in_range_on": in_range_on,
         "below_target_on": below_target_on,
+        "above_range_on": above_range_on,
         "headline": _headline(
             current, estimated_now, target, ceiling, floor,
-            in_range_on, below_target_on, rate, stale_days,
+            in_range_on, below_target_on, rate, stale_days, above_range_on,
         ),
         "salt_cell": _salt_cell_block(rate, gallons, output_pct, runtime, generation, cya,
-                                      system.get("runtime_source")),
+                                      system.get("runtime_source"), water_temp),
         "stabilizer_note": _stabilizer_note(cya, cya_target),
         "excluded_measurements": len(excluded),
         "excluded_note": (
