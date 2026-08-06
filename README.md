@@ -687,16 +687,26 @@ configuration query, so it has to be probed by name. See `PENTAIR_API.md`.
 
 A variable-speed pump holds the speed it's told to hold. So at a *fixed* RPM,
 the flow it achieves measures how hard the water finds it to get through: a
-loading filter, a clogging skimmer basket, a closing valve — or a cassette
-wedging a skimmer weir open.
+loading filter, a clogging pump basket, a closing valve.
 
-That last one actually happened here, and took two days to find. It surfaced
-only when WaterGuru's flow sensor went silent and the pod stopped measuring
-entirely, by which point the chemistry was two days stale and a panel reading
-had been taken from water that hadn't circulated. **Flow at fixed RPM would have
-been visibly falling throughout** — and the pump console, which reports total
-system flow, showed a perfectly healthy 51 gpm the whole time, because the pump
-was fine. It was one skimmer that was starved.
+**Correction, from measurement.** This was originally written claiming it would
+have caught the jammed skimmer weir that took two days to find. It would not
+have. Once the poller was running, total pump flow measured a flat 50–51 gpm
+across every reading — including the whole period when a second skimmer weir was
+*also* jammed open, and after that one was fixed. A jammed weir doesn't restrict
+flow; it stops the skimmer skimming while water passes through freely, and the
+pump holds its commanded RPM and moves the same volume regardless.
+
+So the two checks catch different classes of fault, and it's worth being precise
+about which:
+
+- **Pump flow at fixed RPM** catches genuine restriction — a loading filter, a
+  clogged pump basket, a closing valve. Things that make the water physically
+  harder to move.
+- **WaterGuru's own skimmer flow** catches problems at the pod's skimmer, which
+  is where the weir failure showed up (16 gpm → 3 gpm) and why the low-flow
+  alert exists. Total system flow can be perfectly healthy while one skimmer is
+  starved — and that is exactly what happened.
 
 Comparisons are made within an RPM bucket, since comparing raw flow across
 speeds would read every schedule change as a fault, and both sides use medians
