@@ -135,6 +135,7 @@ def test_flow_at_the_bottom_of_the_band_warns_even_though_the_device_says_green(
     assert fired
     assert "near the limit" in fired[0][0]
     assert "no margin left" in fired[0][1]
+    assert "basket" in fired[0][1]   # the cheapest thing to rule out
 
 
 def test_healthy_flow_with_margin_stays_quiet(db):

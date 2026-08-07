@@ -158,9 +158,10 @@ def _flow_alerts(conn, row: dict, name: str, now: datetime) -> list[tuple[str, s
             [(
                 f"{name}: skimmer flow near the limit",
                 reading + f"That's at the bottom of the acceptable range ({floor:g} gpm minimum) - "
-                "still reported as fine, but with no margin left. The pod stops measuring "
-                "if it falls much further. If another skimmer was recently unblocked it may "
-                "now be taking the flow; balancing the valves would even it out.",
+                "still reported as fine, but with no margin left, and the pod stops measuring "
+                "if it falls much further. Check this skimmer's basket first: it's a single "
+                "instantaneous reading, and a loading basket is both the likeliest cause and "
+                "the quickest to rule out.",
             )],
             now,
         )
