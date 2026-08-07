@@ -38,6 +38,10 @@ RENAG_DAYS = 7
 # How close to the bottom of the acceptable band counts as 'no margin left'.
 FLOW_MARGIN_FRACTION = 0.15
 
+# Pads a completed measurement consumes; fewer than this with no new reading
+# means the attempt aborted partway.
+COMPLETE_MEASUREMENT_PADS = 8
+
 
 def _mac_notification(title: str, message: str):
     script = (
@@ -113,10 +117,53 @@ def build_alerts(conn, row: dict, now: datetime) -> list[tuple[str, str]]:
     if stale:
         alerts += _once(conn, row, "stale_measurement", [stale], now)
 
+    alerts += _failed_measurement_alerts(conn, row, name, now)
     alerts += _flow_alerts(conn, row, name, now)
     alerts += _reorder_alerts(conn, row, name, now)
     alerts += _anomaly_alerts(conn, row, name, now)
     return alerts
+
+
+def _failed_measurement_alerts(conn, row: dict, name: str, now: datetime) -> list[tuple[str, str]]:
+    """The pod consumed pads but produced no reading - it tried and gave up.
+
+    Invisible in WaterGuru's own app, and expensive: a failed attempt burns
+    cassette pads with nothing to show, and retrying without fixing the cause
+    burns more. Seen here when a manually triggered measurement spent 2 pads and
+    aborted while skimmer flow sat exactly on its minimum.
+
+    A completed measurement consumes roughly ten pads *and* advances the
+    measurement time. Pads going down while the time stands still is the
+    signature of an attempt that failed.
+    """
+    pads, prev_pads = row.get("cassette_pads_left"), row.get("prev_cassette_pads_left")
+    if pads is None or prev_pads is None:
+        return []
+
+    consumed = prev_pads - pads
+    # A replacement resets the count upward; only a decrease is interesting.
+    if consumed <= 0 or consumed >= COMPLETE_MEASUREMENT_PADS:
+        return []
+    if row.get("latest_measure_time") != row.get("prev_measure_time"):
+        return []  # pads spent and a reading produced - that is just a measurement
+
+    flow = row.get("skimmer_flow")
+    floor = row.get("skimmer_flow_green_min")
+    cause = ""
+    if flow is not None and floor is not None and flow <= floor * 1.15:
+        cause = (f" Skimmer flow was {flow:g} gpm, at the bottom of its range - the pod draws "
+                 "its sample through the skimmer, so that is the likely reason.")
+
+    return _once(
+        conn, row, "failed_measurement",
+        [(
+            f"{name}: measurement attempt failed",
+            f"The pod used {consumed:g} cassette pads but produced no reading, so it started a "
+            f"measurement and gave up.{cause} Retrying before fixing the cause will just spend "
+            "more pads.",
+        )],
+        now,
+    )
 
 
 def _flow_alerts(conn, row: dict, name: str, now: datetime) -> list[tuple[str, str]]:

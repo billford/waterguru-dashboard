@@ -154,3 +154,51 @@ def test_the_margin_warning_does_not_repeat_every_run(db):
 
 def test_without_a_known_band_only_the_device_verdict_applies(db):
     assert alerts._flow_alerts(db, _flow_row(5.0, green_min=None), "Pool", BASE) == []
+
+
+# ---- the pod trying and giving up ----
+
+def _attempt(pads_before, pads_after, measure_time, prev_measure_time, flow=5.0):
+    return snapshot(
+        cassette_pads_left=pads_after, prev_cassette_pads_left=pads_before,
+        latest_measure_time=measure_time, prev_measure_time=prev_measure_time,
+        skimmer_flow=flow, skimmer_flow_green_min=5.0,
+    )
+
+
+def test_pads_spent_with_no_new_reading_is_a_failed_attempt(db):
+    """Invisible in WaterGuru's app, and expensive - a failed attempt burns pads
+    with nothing to show, and retrying without fixing the cause burns more."""
+    row = _attempt(182, 180, "2026-08-06T15:06:44.000Z", "2026-08-06T15:06:44.000Z")
+    fired = alerts._failed_measurement_alerts(db, row, "Pool", BASE)
+    assert fired
+    assert "attempt failed" in fired[0][0]
+    assert "2 cassette pads" in fired[0][1]
+
+
+def test_the_likely_cause_is_named_when_flow_is_at_its_limit(db):
+    row = _attempt(182, 180, "2026-08-06T15:06:44.000Z", "2026-08-06T15:06:44.000Z", flow=5.0)
+    assert "draws its sample through the skimmer" in alerts._failed_measurement_alerts(
+        db, row, "Pool", BASE)[0][1]
+
+
+def test_a_completed_measurement_is_not_a_failure(db):
+    """Ten pads spent AND the measurement time advanced - that's just a reading."""
+    row = _attempt(192, 182, "2026-08-07T20:56:00.000Z", "2026-08-06T15:06:44.000Z")
+    assert alerts._failed_measurement_alerts(db, row, "Pool", BASE) == []
+
+
+def test_pads_unchanged_is_not_a_failure(db):
+    row = _attempt(182, 182, "2026-08-06T15:06:44.000Z", "2026-08-06T15:06:44.000Z")
+    assert alerts._failed_measurement_alerts(db, row, "Pool", BASE) == []
+
+
+def test_a_replacement_resetting_the_count_upward_is_not_a_failure(db):
+    row = _attempt(10, 192, "2026-08-06T15:06:44.000Z", "2026-08-06T15:06:44.000Z")
+    assert alerts._failed_measurement_alerts(db, row, "Pool", BASE) == []
+
+
+def test_healthy_flow_leaves_the_cause_unstated(db):
+    row = _attempt(182, 180, "2026-08-06T15:06:44.000Z", "2026-08-06T15:06:44.000Z", flow=30.0)
+    message = alerts._failed_measurement_alerts(db, row, "Pool", BASE)[0][1]
+    assert "skimmer" not in message

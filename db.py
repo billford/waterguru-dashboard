@@ -113,6 +113,11 @@ NEW_COLUMNS = {
     # a target of 400 says nothing about whether 300 is fine or alarming.
     "ranges_json": "TEXT",
     "skimmer_flow_green_min": "REAL",
+    # Raw pad counts, not just the rounded percentage. A failed measurement
+    # consumes a couple of pads without producing a reading, and at 1 pad in 192
+    # the percentage doesn't move enough to see it.
+    "cassette_pads_left": "REAL",
+    "cassette_pads_max": "REAL",
     # WaterGuru's configured pool volume. Stored because every dose it
     # recommends is computed from it, so a wrong figure skews them all.
     "size_gallons": "REAL",
@@ -272,6 +277,13 @@ def _refillable(refillables, rtype):
     return None, None, None, False
 
 
+def _pad_counts(refillables):
+    for r in refillables or []:
+        if r.get("type") == "LAB":
+            return _as_float(r.get("amountLeft")), _as_float(r.get("maxAmount"))
+    return None, None
+
+
 def parse_waterbody(fetched_at: str, wb: dict) -> dict:
     measurements = wb.get("measurements", [])
     free_cl, free_cl_target = _measure(measurements, "FREE_CL")
@@ -281,6 +293,7 @@ def parse_waterbody(fetched_at: str, wb: dict) -> dict:
     pods = wb.get("pods", [])
     refillables = pods[0]["refillables"] if pods and pods[0].get("refillables") else []
     cassette_pct, cassette_days, cassette_status, cassette_urgent = _refillable(refillables, "LAB")
+    cassette_pads_left, cassette_pads_max = _pad_counts(refillables)
     batt_pct, batt_time, batt_status, _ = _refillable(refillables, "BATT")
 
     ta, ta_target = _measure(measurements, "TA")
@@ -332,6 +345,8 @@ def parse_waterbody(fetched_at: str, wb: dict) -> dict:
         "panel_measure_time": _measure_time(measurements, "CYA"),
         "ranges_json": json.dumps(_all_ranges(measurements)),
         "skimmer_flow_green_min": _green_range(measurements, "SKIMMER_FLOW")[0],
+        "cassette_pads_left": cassette_pads_left,
+        "cassette_pads_max": cassette_pads_max,
         "free_cl_green_min": free_cl_green_min,
         "free_cl_green_max": free_cl_green_max,
         "size_gallons": (wb.get("waterBody") or {}).get("sizeGallons"),
@@ -360,7 +375,7 @@ def store_snapshot(fetched_at: str, data: dict, db_path: Path = None):
         for row in rows:
             prev = conn.execute(
                 """SELECT status, cassette_status, battery_status, latest_measure_time,
-                          cassette_pct_left, battery_pct_left, cassette_urgent
+                          cassette_pct_left, battery_pct_left, cassette_urgent, cassette_pads_left
                    FROM snapshots WHERE water_body_id = ?
                    ORDER BY fetched_at DESC LIMIT 1""",
                 (row["water_body_id"],),
@@ -371,13 +386,14 @@ def store_snapshot(fetched_at: str, data: dict, db_path: Path = None):
             row["prev_measure_time"] = prev["latest_measure_time"] if prev else None
             row["prev_cassette_pct_left"] = prev["cassette_pct_left"] if prev else None
             row["prev_cassette_urgent"] = prev["cassette_urgent"] if prev else None
+            row["prev_cassette_pads_left"] = prev["cassette_pads_left"] if prev else None
             row["prev_battery_pct_left"] = prev["battery_pct_left"] if prev else None
             conn.execute(
                 """INSERT INTO snapshots (
                     fetched_at, water_body_id, name, status, water_temp, latest_measure_time,
                     free_cl, free_cl_target, ph, ph_target, skimmer_flow, skimmer_flow_target,
                     ta, ta_target, ch, ch_target, cya, cya_target, th, th_target,
-                    panel_measure_time, free_cl_green_min, free_cl_green_max, size_gallons, ranges_json, skimmer_flow_green_min,
+                    panel_measure_time, free_cl_green_min, free_cl_green_max, size_gallons, ranges_json, skimmer_flow_green_min, cassette_pads_left, cassette_pads_max,
                     cassette_pct_left, cassette_days_left, cassette_status, cassette_urgent,
                     battery_pct_left, battery_time_left, battery_status,
                     pod_setup_time, pump_scan_state, meas_hour, meas_minute, meas_auto_hours,
@@ -386,7 +402,7 @@ def store_snapshot(fetched_at: str, data: dict, db_path: Path = None):
                     :fetched_at, :water_body_id, :name, :status, :water_temp, :latest_measure_time,
                     :free_cl, :free_cl_target, :ph, :ph_target, :skimmer_flow, :skimmer_flow_target,
                     :ta, :ta_target, :ch, :ch_target, :cya, :cya_target, :th, :th_target,
-                    :panel_measure_time, :free_cl_green_min, :free_cl_green_max, :size_gallons, :ranges_json, :skimmer_flow_green_min,
+                    :panel_measure_time, :free_cl_green_min, :free_cl_green_max, :size_gallons, :ranges_json, :skimmer_flow_green_min, :cassette_pads_left, :cassette_pads_max,
                     :cassette_pct_left, :cassette_days_left, :cassette_status, :cassette_urgent,
                     :battery_pct_left, :battery_time_left, :battery_status,
                     :pod_setup_time, :pump_scan_state, :meas_hour, :meas_minute, :meas_auto_hours,
