@@ -254,6 +254,30 @@ It touches no network and no real database — each test gets a throwaway SQLite
 file, and notification channels are stubbed, so running it can't push to your
 phone.
 
+### The dashboard is tested in a real browser
+
+The frontend was the last large surface with nothing watching it: 1,700 lines of
+vanilla JS whose every known bug — the XSS, a single missing field blanking the
+page, the sticky tooltip, absent readings rendering green — had been found by
+driving headless Chrome **by hand**. None of it was pinned down, so any of it
+could come back silently.
+
+`tests/dashboard.py` renders the real `site/` against fixture JSON and returns
+the DOM to assert against. No new dependencies: Chrome is already installed and
+Python already serves files. Renders are cached by scenario, since most tests
+share a handful of setups.
+
+They're slow — about 50 seconds against under a second for everything else — so
+they carry a marker:
+
+```bash
+./venv/bin/pytest                        # everything, ~53s
+./venv/bin/pytest -m "not dashboard"     # Python only, ~0.5s, for iterating
+```
+
+They run by default deliberately. The reason this code accumulated bugs is that
+nothing was checking it.
+
 `.env`:
 
 ```
