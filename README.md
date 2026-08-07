@@ -350,10 +350,18 @@ launchctl load ~/Library/LaunchAgents/com.billfordx.waterguru-fetch.plist
 ## Alerting
 
 - **macOS notification** — always on, no setup, via `osascript`.
-- **Push via [ntfy.sh](https://ntfy.sh)** — free, no account. Set `NTFY_TOPIC` in
-  `.env` to any hard-to-guess string, then subscribe to that topic in the ntfy
-  app. Anyone who knows the topic name can read the alerts (ntfy topics aren't
-  access-controlled), so don't use something guessable.
+- **Push via ntfy** — set `NTFY_TOPIC` in `.env` and subscribe in the ntfy app.
+  Where it publishes depends on `NTFY_URL`:
+  - **Unset** → the public `ntfy.sh`. Free and account-free, but topics are not
+    access-controlled, so anyone who knows the name can read your alerts. Use a
+    random, hard-to-guess topic.
+  - **Set** → a self-hosted instance, where the topic *is* access-controlled and
+    `NTFY_USER`/`NTFY_PASS` are required (anonymous publishing is refused). The
+    topic name can then be a readable one, and the credentials should be
+    write-only on that topic alone.
+
+  `alerts.py test` reports which of the two it used, since "the alert didn't
+  arrive" and "the alert went somewhere else" look identical from the phone.
 
 Alerts come in two shapes, and the difference is what keeps them from becoming
 noise you learn to ignore.

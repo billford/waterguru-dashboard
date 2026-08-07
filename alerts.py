@@ -500,7 +500,13 @@ def send_test() -> bool:
         print("\nntfy: NTFY_TOPIC is not set in .env - phone pushes are disabled.")
         return False
 
-    print(f"\nntfy: posting to https://ntfy.sh/{topic}")
+    base = (os.environ.get("NTFY_URL") or "https://ntfy.sh").rstrip("/")
+    hosted = base != "https://ntfy.sh"
+    print(f"\nntfy: posting to {base}/{topic}"
+          + ("  (self-hosted)" if hosted else "  (public ntfy.sh)"))
+    if hosted and not (os.environ.get("NTFY_USER") and os.environ.get("NTFY_PASS")):
+        print("ntfy: WARNING - NTFY_URL is set but NTFY_USER/NTFY_PASS are not. "
+              "A self-hosted server that refuses anonymous publishing will reject this.")
     message_id = _ntfy_push(
         topic,
         "Pool alert test",
@@ -511,9 +517,10 @@ def send_test() -> bool:
     if message_id:
         print(f"ntfy: accepted, message id {message_id}")
         print("\nIf your phone stayed silent, the push was delivered to ntfy but not to you:")
-        print(f"  1. Open the ntfy app and subscribe to the topic: {topic}")
+        print(f"  1. In the ntfy app, add {base} as a server and subscribe to: {topic}"
+              if hosted else f"  1. Open the ntfy app and subscribe to the topic: {topic}")
         print("  2. Check the app's notification permission and battery optimization settings")
-        print(f"  3. Confirm in a browser at https://ntfy.sh/{topic} - the test should be listed")
+        print(f"  3. Confirm in a browser at {base}/{topic} - the test should be listed")
         return True
 
     print("ntfy: FAILED - the push never left this machine (see the error above)")
