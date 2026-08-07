@@ -3,6 +3,7 @@
 Every case here was found by review. The failure mode they share is an alert
 that trains you to ignore it — which then mutes the genuine one behind it.
 """
+import json
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -115,3 +116,40 @@ def test_a_stale_jump_is_not_reported_as_news():
 def test_a_recent_jump_carries_when_it_happened():
     found = anomaly.detect_jump([_rd(20, ph=7.4), _rd(21, ph=0.0)], "ph", NOW)
     assert found["at"].startswith("2026-08-21")
+
+
+# ---- sitting AT the limit gives no warning from the device ----
+
+def _flow_row(flow, condition=None, green_min=5.0):
+    alerts_json = "[]" if condition is None else json.dumps([
+        {"source": "SKIMMER_FLOW", "condition": condition, "status": "YELLOW",
+         "text": "Skimmer Flow low"}])
+    return snapshot(skimmer_flow=flow, skimmer_flow_green_min=green_min, alerts_json=alerts_json)
+
+
+def test_flow_at_the_bottom_of_the_band_warns_even_though_the_device_says_green(db):
+    """The device reports GREEN right up to the boundary, so the first alert
+    arrives only once measurement is already at risk. This pool went 16 -> 5 gpm
+    (the green minimum) in an afternoon; at 3 the pod stops measuring."""
+    fired = alerts._flow_alerts(db, _flow_row(5.0), "Pool", BASE)
+    assert fired
+    assert "near the limit" in fired[0][0]
+    assert "no margin left" in fired[0][1]
+
+
+def test_healthy_flow_with_margin_stays_quiet(db):
+    assert alerts._flow_alerts(db, _flow_row(16.0), "Pool", BASE) == []
+
+
+def test_the_device_saying_low_still_takes_precedence(db):
+    fired = alerts._flow_alerts(db, _flow_row(3.0, condition="LOW"), "Pool", BASE)
+    assert "too low to measure" in fired[0][0]
+
+
+def test_the_margin_warning_does_not_repeat_every_run(db):
+    assert alerts._flow_alerts(db, _flow_row(5.0), "Pool", BASE)
+    assert alerts._flow_alerts(db, _flow_row(5.0), "Pool", BASE) == []
+
+
+def test_without_a_known_band_only_the_device_verdict_applies(db):
+    assert alerts._flow_alerts(db, _flow_row(5.0, green_min=None), "Pool", BASE) == []

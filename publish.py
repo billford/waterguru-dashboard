@@ -138,6 +138,9 @@ def build_payload(rows: list[dict], now: datetime = None, conn=None) -> dict:
         actual_gallons = _controller_volume(conn)
         waterbodies[wb_id] = {
             "name": newest["name"],
+            # The device's own bands, so the dashboard can say what "in range"
+            # means rather than showing a bare midpoint.
+            "ranges": json.loads(newest["ranges_json"]) if newest.get("ranges_json") else {},
             "targets": {
                 "free_cl": newest["free_cl_target"],
                 "ph": newest["ph_target"],

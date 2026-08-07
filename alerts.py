@@ -1,7 +1,8 @@
 """Everything that's worth interrupting you about.
 
-Channels: a native macOS notification (osascript) and a push via ntfy.sh
-(https://ntfy.sh/<topic> - no account needed, subscribe in the ntfy app).
+Channels: a native macOS notification (osascript) and a push via ntfy
+(subscribe to the topic in the ntfy app). Points at whatever NTFY_URL names -
+a self-hosted, access-controlled server - and falls back to ntfy.sh if unset.
 
 Two different "fire once" mechanisms are at work here, for two different kinds
 of alert:
@@ -34,6 +35,9 @@ from freshness import stale_measurement_alert
 # How long before a standing, non-resetting condition is allowed to nag again.
 RENAG_DAYS = 7
 
+# How close to the bottom of the acceptable band counts as 'no margin left'.
+FLOW_MARGIN_FRACTION = 0.15
+
 
 def _mac_notification(title: str, message: str):
     script = (
@@ -52,12 +56,21 @@ def _ntfy_push(topic: str, title: str, message: str, priority: str = "high", tag
 
     Failures used to be swallowed apart from a bare print, which made "my phone
     never buzzed" impossible to tell apart from "the push was never sent".
+
+    NTFY_URL points at a self-hosted ntfy; unset, it falls back to ntfy.sh so
+    an existing .env keeps working untouched. The self-hosted server refuses
+    anonymous requests, so NTFY_USER/NTFY_PASS are required there - without
+    them every push returns 403 and this function reports the failure.
     """
+    base = os.environ.get("NTFY_URL", "https://ntfy.sh").rstrip("/")
+    user = os.environ.get("NTFY_USER")
+    password = os.environ.get("NTFY_PASS")
     try:
         resp = requests.post(
-            f"https://ntfy.sh/{topic}",
+            f"{base}/{topic}",
             data=message.encode("utf-8"),
             headers={"Title": title, "Priority": priority, "Tags": tags},
+            auth=(user, password) if user and password else None,
             timeout=10,
         )
         resp.raise_for_status()
@@ -120,11 +133,38 @@ def _flow_alerts(conn, row: dict, name: str, now: datetime) -> list[tuple[str, s
     reaches this particular skimmer.
     """
     flow_alert = _find_alert(row.get("alerts_json"), "SKIMMER_FLOW")
-    if not flow_alert or flow_alert.get("condition") not in ("LOW", "VERY_LOW"):
+    low_by_device = flow_alert and flow_alert.get("condition") in ("LOW", "VERY_LOW")
+
+    # Sitting *at* the bottom of the acceptable band gives no warning at all -
+    # the device reports GREEN right up to the boundary, and the first alert
+    # arrives only once measurement is already at risk. This pool went from 16
+    # gpm to exactly 5 (the green minimum) in an afternoon; at 3 the pod stops
+    # measuring entirely.
+    flow = row.get("skimmer_flow")
+    margin_low = (
+        flow is not None
+        and row.get("skimmer_flow_green_min") is not None
+        and flow <= row["skimmer_flow_green_min"] * (1 + FLOW_MARGIN_FRACTION)
+    )
+
+    if not low_by_device and not margin_low:
         return []
 
-    flow = row.get("skimmer_flow")
     reading = f"Skimmer flow is {flow:g} gpm. " if flow is not None else ""
+    if margin_low and not low_by_device:
+        floor = row["skimmer_flow_green_min"]
+        return _once(
+            conn, row, "flow_margin",
+            [(
+                f"{name}: skimmer flow near the limit",
+                reading + f"That's at the bottom of the acceptable range ({floor:g} gpm minimum) - "
+                "still reported as fine, but with no margin left. The pod stops measuring "
+                "if it falls much further. If another skimmer was recently unblocked it may "
+                "now be taking the flow; balancing the valves would even it out.",
+            )],
+            now,
+        )
+
     return _once(
         conn, row, "low_flow",
         [(

@@ -174,3 +174,59 @@ def test_a_pool_with_no_readings_still_renders_the_page():
         return data
 
     assert _tiles(render(**{"history.json": mutate})) > 0
+
+
+# ---- ranges, not bare targets ----
+
+def test_tiles_show_the_range_rather_than_a_bare_target():
+    """"target 400" says nothing about whether 300 is fine or alarming."""
+    dom = render()
+    assert "range 300–500" in dom     # calcium and total hardness
+    assert "range 1.6–5.4" in dom     # free chlorine
+    assert "range 30–100" in dom      # stabilizer
+
+
+def test_a_value_outside_the_band_is_not_shown_as_in_range():
+    """Status previously came only from the presence of a device alert, so a
+    value the device didn't happen to alert on read as green."""
+    def mutate(data):
+        wb = waterbody(data)
+        wb["series"][-1]["ph"] = 9.9          # far above the 7.5-7.7 band
+        wb["series"][-1]["alerts"] = []       # and no alert accompanying it
+        return data
+
+    dom = render(**{"history.json": mutate})
+    assert re.search(r'class="tile[^"]*status-RED', dom)
+
+
+def test_a_value_inside_the_band_reads_as_in_range_without_an_alert():
+    def mutate(data):
+        wb = waterbody(data)
+        wb["series"][-1]["ph"] = 7.6
+        wb["series"][-1]["alerts"] = []
+        return data
+
+    dom = render(**{"history.json": mutate})
+    assert re.search(r'class="tile[^"]*status-GREEN', dom)
+
+
+def test_a_device_alert_still_wins_over_the_band():
+    """The device knows things the bands don't - staleness, hardware faults."""
+    def mutate(data):
+        wb = waterbody(data)
+        wb["series"][-1]["ph"] = 7.6          # squarely in range
+        wb["series"][-1]["alerts"] = [
+            {"source": "PH", "status": "RED", "condition": "OLD", "text": "pH measurement outdated"}]
+        return data
+
+    dom = render(**{"history.json": mutate})
+    assert re.search(r'class="tile[^"]*status-RED', dom)
+
+
+def test_missing_bands_fall_back_to_the_target():
+    def mutate(data):
+        waterbody(data)["ranges"] = {}
+        return data
+
+    dom = render(**{"history.json": mutate})
+    assert "target 3" in dom

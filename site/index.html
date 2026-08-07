@@ -446,7 +446,7 @@
 </div>
 
 <script>
-const state = { data: null, rangeDays: 30, summary: null, weather: null, advice: null, chlorine: null, anomalies: null, system: null };
+const state = { data: null, rangeDays: 30, summary: null, weather: null, advice: null, chlorine: null, anomalies: null, system: null, ranges: {} };
 
 async function loadOptional(path) {
   try {
@@ -916,6 +916,7 @@ function render() {
 
   renderTrustBanner(lastChem);
   const targets = wb.targets || {};
+  state.ranges = wb.ranges || {};
   renderTiles(latest, lastChem, targets, freshness);
   renderPanel(lastChem, targets, freshness, wb.lsi);
   renderChart('chart-free_cl', series, 'free_cl', 'ppm', targets.free_cl, 'var(--series-1)');
@@ -941,9 +942,9 @@ function renderTiles(latest, lastChem, targets, freshness) {
 
   const items = [
     { label: 'Water temp', value: latest.water_temp, unit: '°F', status: null },
-    { label: 'Free chlorine', value: chem.free_cl, unit: 'ppm', sub: withAge(targets.free_cl ? 'target ' + targets.free_cl : '', chem.free_cl), status: statusFor(chem, 'FREE_CL', chem.free_cl), fromChem: true },
-    { label: 'pH', value: chem.ph, unit: '', sub: withAge(targets.ph ? 'target ' + targets.ph : '', chem.ph), status: statusFor(chem, 'PH', chem.ph), fromChem: true },
-    { label: 'Skimmer flow', value: chem.skimmer_flow, unit: 'gpm', sub: chem.skimmer_flow == null ? null : chemAge, status: null, fromChem: true },
+    { label: 'Free chlorine', value: chem.free_cl, unit: 'ppm', sub: withAge(describeRange(state.ranges.FREE_CL, targets.free_cl), chem.free_cl), status: statusFor(chem, 'FREE_CL', chem.free_cl), fromChem: true },
+    { label: 'pH', value: chem.ph, unit: '', sub: withAge(describeRange(state.ranges.PH, targets.ph), chem.ph), status: statusFor(chem, 'PH', chem.ph), fromChem: true },
+    { label: 'Skimmer flow', value: chem.skimmer_flow, unit: 'gpm', sub: withAge(describeRange(state.ranges.SKIMMER_FLOW, targets.skimmer_flow), chem.skimmer_flow), status: statusFor(chem, 'SKIMMER_FLOW', chem.skimmer_flow), fromChem: true },
     { label: 'Cassette left', value: latest.cassette_pct_left, unit: '%', sub: latest.cassette_days_left, status: null },
     { label: 'Battery', value: latest.battery_pct_left, unit: '%', sub: latest.battery_time_left, status: null },
     { label: 'WiFi', value: latest.rssi, unit: 'dBm', sub: latest.rssi_desc, status: null },
@@ -1165,7 +1166,7 @@ function renderPanel(lastChem, targets, freshness, saturation) {
     u.className = 'unit';
     u.textContent = it.unit;
     valEl.appendChild(u);
-    el.querySelector('.sub').textContent = targets[it.key] != null ? 'target ' + targets[it.key] : '';
+    el.querySelector('.sub').textContent = describeRange(state.ranges[it.source], targets[it.key]);
     wrap.appendChild(el);
   }
 }
@@ -1185,10 +1186,32 @@ function renderLsi(saturation) {
   document.getElementById('lsiLever').textContent = saturation.lever || '';
 }
 
+// Status from the device's own bands, with its alert taking precedence when
+// there is one. Relying on the alert alone meant "no alert" was read as "in
+// range" - true only if the device alerts on every excursion, which is an
+// assumption rather than a guarantee. The bands are what "in range" means.
 function statusFor(point, source, value) {
   if (value === null || value === undefined) return null;
-  const a = (point.alerts || []).find(x => x.source === source);
-  return a ? a.status : 'GREEN';
+  const alert = (point.alerts || []).find(x => x.source === source);
+  if (alert) return alert.status;
+  return statusFromRange(value, (state.ranges || {})[source]);
+}
+
+function statusFromRange(value, band) {
+  if (!band || value === null || value === undefined) return 'GREEN';
+  if (band.GREEN_MIN != null && band.GREEN_MAX != null
+      && value >= band.GREEN_MIN && value <= band.GREEN_MAX) return 'GREEN';
+  if (band.YELLOW_MIN != null && band.YELLOW_MAX != null
+      && value >= band.YELLOW_MIN && value <= band.YELLOW_MAX) return 'YELLOW';
+  return 'RED';
+}
+
+// "target 400" says nothing about whether 300 is fine or alarming. The band does.
+function describeRange(band, target) {
+  if (band && band.GREEN_MIN != null && band.GREEN_MAX != null) {
+    return 'range ' + fmtNum(band.GREEN_MIN) + '\u2013' + fmtNum(band.GREEN_MAX);
+  }
+  return target != null ? 'target ' + target : '';
 }
 
 function renderAlerts(latest) {

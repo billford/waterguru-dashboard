@@ -108,6 +108,11 @@ NEW_COLUMNS = {
     # what WaterGuru means, rather than a tolerance invented at this end.
     "free_cl_green_min": "REAL",
     "free_cl_green_max": "REAL",
+    # The full RED/YELLOW/GREEN bounds for every measurement type, as the device
+    # ships them. Storing only the midpoint threw away what "in range" means -
+    # a target of 400 says nothing about whether 300 is fine or alarming.
+    "ranges_json": "TEXT",
+    "skimmer_flow_green_min": "REAL",
     # WaterGuru's configured pool volume. Stored because every dose it
     # recommends is computed from it, so a wrong figure skews them all.
     "size_gallons": "REAL",
@@ -216,6 +221,27 @@ def _measure_time(measurements, mtype):
     return None
 
 
+def _all_ranges(measurements) -> dict:
+    """Every measurement type's bands, keyed by type.
+
+    Values are floats; the device sends some as strings and some as numbers
+    depending on whether it populated `floatRanges` or only `ranges`.
+    """
+    out = {}
+    for m in measurements or []:
+        cfg = m.get("cfg") or {}
+        raw = cfg.get("floatRanges") or cfg.get("ranges") or {}
+        if not raw:
+            continue
+        bounds = {k: _as_float(v) for k, v in raw.items()}
+        bounds = {k: v for k, v in bounds.items() if v is not None}
+        if bounds:
+            bounds["unit"] = cfg.get("unit")
+            bounds["title"] = m.get("title")
+            out[m["type"]] = bounds
+    return out
+
+
 def _green_range(measurements, mtype):
     """The device's own acceptable band for a measurement type.
 
@@ -304,6 +330,8 @@ def parse_waterbody(fetched_at: str, wb: dict) -> dict:
         "th": th,
         "th_target": th_target,
         "panel_measure_time": _measure_time(measurements, "CYA"),
+        "ranges_json": json.dumps(_all_ranges(measurements)),
+        "skimmer_flow_green_min": _green_range(measurements, "SKIMMER_FLOW")[0],
         "free_cl_green_min": free_cl_green_min,
         "free_cl_green_max": free_cl_green_max,
         "size_gallons": (wb.get("waterBody") or {}).get("sizeGallons"),
@@ -349,7 +377,7 @@ def store_snapshot(fetched_at: str, data: dict, db_path: Path = None):
                     fetched_at, water_body_id, name, status, water_temp, latest_measure_time,
                     free_cl, free_cl_target, ph, ph_target, skimmer_flow, skimmer_flow_target,
                     ta, ta_target, ch, ch_target, cya, cya_target, th, th_target,
-                    panel_measure_time, free_cl_green_min, free_cl_green_max, size_gallons,
+                    panel_measure_time, free_cl_green_min, free_cl_green_max, size_gallons, ranges_json, skimmer_flow_green_min,
                     cassette_pct_left, cassette_days_left, cassette_status, cassette_urgent,
                     battery_pct_left, battery_time_left, battery_status,
                     pod_setup_time, pump_scan_state, meas_hour, meas_minute, meas_auto_hours,
@@ -358,7 +386,7 @@ def store_snapshot(fetched_at: str, data: dict, db_path: Path = None):
                     :fetched_at, :water_body_id, :name, :status, :water_temp, :latest_measure_time,
                     :free_cl, :free_cl_target, :ph, :ph_target, :skimmer_flow, :skimmer_flow_target,
                     :ta, :ta_target, :ch, :ch_target, :cya, :cya_target, :th, :th_target,
-                    :panel_measure_time, :free_cl_green_min, :free_cl_green_max, :size_gallons,
+                    :panel_measure_time, :free_cl_green_min, :free_cl_green_max, :size_gallons, :ranges_json, :skimmer_flow_green_min,
                     :cassette_pct_left, :cassette_days_left, :cassette_status, :cassette_urgent,
                     :battery_pct_left, :battery_time_left, :battery_status,
                     :pod_setup_time, :pump_scan_state, :meas_hour, :meas_minute, :meas_auto_hours,
