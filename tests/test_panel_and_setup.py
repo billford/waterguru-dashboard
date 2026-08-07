@@ -175,3 +175,40 @@ def test_an_alert_without_advice_still_reads_cleanly():
     ]))
     _, message = alerts._status_alerts(row, "flounder")[0]
     assert message == "Free Chlorine very high"
+
+
+# ---- when is the next reading due? ----
+
+def test_the_next_measurement_accounts_for_the_minimum_interval(monkeypatch):
+    """The pod has a daily slot AND a minimum interval. A slot arriving before
+    the interval has elapsed is skipped - which is why reseating a cassette
+    (an immediate off-schedule reading) pushes the next one a full day out and
+    makes a healthy pod look dead."""
+    from freshness import next_expected_measurement
+    monkeypatch.setenv("POOL_TZ_OFFSET", "-4")
+
+    row = snapshot(latest_measure_time="2026-08-06T15:06:44.000Z",  # 11:06 local
+                   meas_hour=20, meas_minute=56, meas_auto_hours=24)
+    now = datetime(2026, 8, 7, 12, 0, tzinfo=timezone.utc)          # 08:00 local Aug 7
+    nxt = next_expected_measurement(row, now)
+
+    # 20:56 on Aug 6 was only 9.8h after the reading, so it was skipped.
+    assert nxt.date().isoformat() == "2026-08-07"
+    assert (nxt.hour, nxt.minute) == (20, 56)
+
+
+def test_a_slot_far_enough_after_the_last_reading_is_used(monkeypatch):
+    from freshness import next_expected_measurement
+    monkeypatch.setenv("POOL_TZ_OFFSET", "-4")
+
+    row = snapshot(latest_measure_time="2026-08-05T20:00:00.000Z",
+                   meas_hour=20, meas_minute=56, meas_auto_hours=24)
+    now = datetime(2026, 8, 7, 12, 0, tzinfo=timezone.utc)
+    assert next_expected_measurement(row, now).date().isoformat() == "2026-08-07"
+
+
+def test_no_schedule_means_no_prediction(monkeypatch):
+    from freshness import next_expected_measurement
+    monkeypatch.setenv("POOL_TZ_OFFSET", "-4")
+    row = snapshot(meas_hour=None, meas_minute=None)
+    assert next_expected_measurement(row, datetime(2026, 8, 7, 12, 0, tzinfo=timezone.utc)) is None

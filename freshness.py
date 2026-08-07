@@ -124,6 +124,9 @@ def freshness_for(rows: list[dict], now: datetime = None) -> dict:
         ),
         "setting_up": setting_up,
         "scheduled_measurement": scheduled_measurement(newest),
+        "next_measurement_at": (
+            lambda nxt: nxt.isoformat() if nxt else None
+        )(next_expected_measurement(newest, now)),
         "fetch_stale_after_hours": FETCH_STALE_HOURS,
         "measure_stale_after_hours": MEASURE_STALE_HOURS,
     }
@@ -178,6 +181,38 @@ def stale_measurement_alert(row: dict, name: str, now: datetime = None) -> tuple
     )
 
 
-def next_expected_measurement(row: dict) -> datetime | None:
-    measure_ts = parse_ts(row.get("latest_measure_time"))
-    return measure_ts + timedelta(hours=MEASURE_STALE_HOURS) if measure_ts else None
+DEFAULT_MEAS_INTERVAL_HOURS = 24
+
+
+def next_expected_measurement(row: dict, now: datetime = None) -> datetime | None:
+    """When the pod should next measure.
+
+    The pod has a daily slot (`measDoseTimes`) *and* a minimum interval
+    (`measAutoHrs`, normally 24). A slot arriving before the interval has
+    elapsed is skipped, which is why reseating a cassette - which triggers an
+    immediate off-schedule measurement - can push the next one a day out and
+    make a perfectly healthy pod look dead.
+
+    An earlier version of this added the 48-hour *alarm threshold* as if it were
+    the cadence, and ignored the schedule entirely. It had no callers, which is
+    the only reason it never misled anyone.
+    """
+    from poolclock import pool_now
+
+    hour, minute = row.get("meas_hour"), row.get("meas_minute")
+    last = parse_ts(row.get("latest_measure_time"))
+    if hour is None or minute is None or last is None:
+        return None
+
+    interval = row.get("meas_auto_hours") or DEFAULT_MEAS_INTERVAL_HOURS
+    earliest = last + timedelta(hours=interval)
+
+    # Walk forward through daily slots, in the pod's own local time, until one
+    # lands at or after the earliest permitted moment.
+    slot = pool_now(now or datetime.now(timezone.utc)).replace(
+        hour=hour, minute=minute, second=0, microsecond=0)
+    for _ in range(4):
+        if slot >= earliest and slot >= pool_now(now):
+            return slot
+        slot += timedelta(days=1)
+    return None

@@ -102,6 +102,7 @@ NEW_COLUMNS = {
     "pump_scan_state": "TEXT",
     "meas_hour": "INTEGER",
     "meas_minute": "INTEGER",
+    "meas_auto_hours": "INTEGER",
     # The device ships the band it actually judges chlorine against (green
     # 1.6-5.4 ppm around a 3.0 target). Storing it means "in range" can mean
     # what WaterGuru means, rather than a tolerance invented at this end.
@@ -310,6 +311,7 @@ def parse_waterbody(fetched_at: str, wb: dict) -> dict:
         "pump_scan_state": pod.get("pumpScanState"),
         "meas_hour": meas_times[0].get("hour"),
         "meas_minute": meas_times[0].get("minute"),
+        "meas_auto_hours": pod.get("measAutoHrs"),
         "cassette_pct_left": cassette_pct,
         "cassette_days_left": cassette_days,
         "cassette_status": cassette_status,
@@ -350,7 +352,7 @@ def store_snapshot(fetched_at: str, data: dict, db_path: Path = None):
                     panel_measure_time, free_cl_green_min, free_cl_green_max, size_gallons,
                     cassette_pct_left, cassette_days_left, cassette_status, cassette_urgent,
                     battery_pct_left, battery_time_left, battery_status,
-                    pod_setup_time, pump_scan_state, meas_hour, meas_minute,
+                    pod_setup_time, pump_scan_state, meas_hour, meas_minute, meas_auto_hours,
                     rssi, rssi_desc, alerts_json
                 ) VALUES (
                     :fetched_at, :water_body_id, :name, :status, :water_temp, :latest_measure_time,
@@ -359,7 +361,7 @@ def store_snapshot(fetched_at: str, data: dict, db_path: Path = None):
                     :panel_measure_time, :free_cl_green_min, :free_cl_green_max, :size_gallons,
                     :cassette_pct_left, :cassette_days_left, :cassette_status, :cassette_urgent,
                     :battery_pct_left, :battery_time_left, :battery_status,
-                    :pod_setup_time, :pump_scan_state, :meas_hour, :meas_minute,
+                    :pod_setup_time, :pump_scan_state, :meas_hour, :meas_minute, :meas_auto_hours,
                     :rssi, :rssi_desc, :alerts_json
                 )""",
                 row,

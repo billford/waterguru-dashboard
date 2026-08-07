@@ -824,6 +824,24 @@ dispute.
 
 ---
 
+## When is the next reading due?
+
+The pod has a daily slot (`measDoseTimes`, 20:56 here) **and** a minimum
+interval between readings (`measAutoHrs`, normally 24). A slot arriving before
+the interval has elapsed is silently skipped.
+
+That combination produces a confusing-looking gap. Reseating a cassette
+re-registers it and triggers an immediate off-schedule measurement; if that
+lands in the morning, the evening slot is only ~10 hours later, gets skipped,
+and the next reading is a full day out. The pod is behaving correctly and the
+dashboard looks broken.
+
+So the header states when the next reading is expected, not just when the last
+one arrived — computed from the slot and the interval, in the pod's own local
+time. A gap you can see the reason for is a different thing from a gap you can't.
+
+---
+
 ## Sensor health
 
 WaterGuru's status flags answer "is the water OK?". They don't answer "is the

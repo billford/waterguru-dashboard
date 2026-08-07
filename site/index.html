@@ -826,6 +826,17 @@ function inRange(points) {
   return points.filter(p => new Date(p.t).getTime() >= cutoff);
 }
 
+function fmtNextMeasurement(iso) {
+  const when = new Date(iso);
+  const today = new Date();
+  const sameDay = when.toDateString() === today.toDateString();
+  const time = when.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  if (sameDay) return 'today ' + time;
+  const tomorrow = new Date(today.getTime() + 86400000);
+  if (when.toDateString() === tomorrow.toDateString()) return 'tomorrow ' + time;
+  return when.toLocaleDateString(undefined, { weekday: 'short' }) + ' ' + time;
+}
+
 function describeAge(hours) {
   if (hours == null) return 'unknown';
   if (hours < 1) return 'just now';
@@ -892,8 +903,14 @@ function render() {
     status === 'GREEN' ? 'All normal' : status === 'YELLOW' ? 'Needs attention' : 'Action needed';
 
   const freshness = wb.freshness || {};
+  // Say when the next reading is due, not just when the last one was. Without
+  // this an old-but-normal measurement reads as a broken sensor - the pod
+  // enforces a minimum interval between readings, so a manual one (reseating a
+  // cassette, say) pushes the next scheduled slot a full day out.
+  const nextAt = freshness.next_measurement_at;
+  const nextText = nextAt ? ' · next expected ' + fmtNextMeasurement(nextAt) : '';
   document.getElementById('lastUpdated').textContent = lastChem
-    ? 'Last measurement ' + fmtDate(lastChem.t) + ' · checked ' + describeAge(freshness.fetch_age_hours)
+    ? 'Last measurement ' + fmtDate(lastChem.t) + nextText
     : '';
   renderStaleBadge(freshness);
 
