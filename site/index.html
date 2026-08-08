@@ -374,6 +374,15 @@
     </div>
   </div>
 
+  <div class="card" id="handTestCard" style="display:none;">
+    <h2>Hand test</h2>
+    <div class="card-sub" id="handTestSub"></div>
+    <table class="data-table" id="handTestTable"></table>
+    <div class="trust-banner" id="handTestLsi" style="display:none;">
+      <span>⚖️</span><span id="handTestLsiText"></span>
+    </div>
+  </div>
+
   <div class="card" id="clForecastCard" style="display:none;">
     <h2>Chlorine outlook <a class="ai-info-link" href="about-ai.html#chlorine">📐 How this is calculated</a></h2>
     <div class="card-sub" id="clForecastSub"></div>
@@ -919,6 +928,7 @@ function render() {
   state.ranges = wb.ranges || {};
   renderTiles(latest, lastChem, targets, freshness);
   renderPanel(lastChem, targets, freshness, wb.lsi);
+  renderHandTest(wb.hand_test);
   renderChart('chart-free_cl', series, 'free_cl', 'ppm', targets.free_cl, 'var(--series-1)');
   renderChart('chart-ph', series, 'ph', '', targets.ph, 'var(--series-2)');
   renderChart('chart-water_temp', tempSeries, 'water_temp', '°F', null, 'var(--series-3)');
@@ -1195,6 +1205,58 @@ function statusFor(point, source, value) {
   const alert = (point.alerts || []).find(x => x.source === source);
   if (alert) return alert.status;
   return statusFromRange(value, (state.ranges || {})[source]);
+}
+
+// A drop-count titration outranks the pod when the two disagree, and while the
+// pod is failing to measure it is the only chemistry there is.
+const HAND_TEST_ROWS = [
+  ['free_cl', 'Free chlorine', 'ppm'], ['ph', 'pH', ''], ['ta', 'Total alkalinity', 'ppm'],
+  ['ch', 'Calcium hardness', 'ppm'], ['cya', 'Stabilizer', 'ppm'], ['salt', 'Salt', 'ppm'],
+];
+
+function renderHandTest(test) {
+  const card = document.getElementById('handTestCard');
+  if (!test || !test.values) { card.style.display = 'none'; return; }
+  card.style.display = '';
+
+  document.getElementById('handTestSub').textContent =
+    [test.kit, 'measured ' + fmtDate(test.at), test.note].filter(Boolean).join(' · ');
+
+  const table = document.getElementById('handTestTable');
+  table.innerHTML = '';
+  const head = document.createElement('tr');
+  for (const label of ['', 'Hand test', 'Sensor', '']) {
+    const th = document.createElement('th');
+    th.textContent = label;
+    head.appendChild(th);
+  }
+  table.appendChild(head);
+
+  for (const [field, label, unit] of HAND_TEST_ROWS) {
+    const hand = test.values[field];
+    if (hand === undefined || hand === null) continue;
+    const sensor = (test.sensor || {})[field];
+    const tr = document.createElement('tr');
+    // Flag a disagreement worth investigating rather than measurement scatter.
+    const disagrees = sensor != null && Math.abs(hand - sensor) > Math.max(Math.abs(sensor) * 0.25, 0.3);
+    for (const value of [label, hand + (unit ? ' ' + unit : ''),
+                         sensor == null ? '—' : sensor + (unit ? ' ' + unit : ''),
+                         disagrees ? '⚠ disagree' : '']) {
+      const td = document.createElement('td');
+      td.textContent = value;
+      tr.appendChild(td);
+    }
+    table.appendChild(tr);
+  }
+
+  const box = document.getElementById('handTestLsi');
+  if (test.lsi) {
+    box.style.display = '';
+    document.getElementById('handTestLsiText').textContent =
+      'From these numbers: ' + test.lsi.text + (test.lsi.lever ? ' ' + test.lsi.lever : '');
+  } else {
+    box.style.display = 'none';
+  }
 }
 
 function statusFromRange(value, band) {

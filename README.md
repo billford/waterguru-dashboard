@@ -896,6 +896,29 @@ payload, so history predating the column is still available.
 
 ---
 
+## Recording a manual test
+
+```bash
+python annotate.py handtest --fc 4.5 --ph 7.5 --ta 90 --ch 320 --cya 40 \
+    --kit "Taylor K-2006" --note "neutralised chlorine before the pH drop"
+```
+
+A drop-count titration outranks the pod when the two disagree, and while the pod
+is failing to measure it's the only chemistry there is. The dashboard shows the
+kit's numbers beside the sensor's, flags values that differ by more than
+measurement scatter, and computes a **separate saturation index** from the
+manual figures — because when the two disagree, what each implies about the
+water is the whole point. A kit reading calcium at 350 and a sensor reading 152
+are not a small discrepancy; they're "balanced" versus "actively dissolving the
+plaster".
+
+One trap worth knowing: **phenol red bleaches above about 5 ppm of chlorine and
+reads falsely low.** Kits ship a neutraliser (Taylor's is R-0007) for exactly
+this — one drop in the pH sample first. Skipping it on a pool sitting at 7 ppm
+produces a low pH reading that looks like corroboration and isn't.
+
+---
+
 ## Sensor health
 
 WaterGuru's status flags answer "is the water OK?". They don't answer "is the

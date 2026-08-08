@@ -158,6 +158,15 @@ def main():
     p.add_argument("timestamp", nargs="?", help="when, ISO format; defaults to now")
     p.set_defaults(func=cmd_water_stopped)
 
+    p = sub.add_parser("handtest", help="record a manual test-kit result")
+    for flag, (field, unit) in HANDTEST_FIELDS.items():
+        p.add_argument(f"--{flag}", type=float,
+                       help=f"{field.replace('_', ' ')}" + (f" ({unit})" if unit else ""))
+    p.add_argument("--kit", help="which kit, e.g. 'Taylor K-2006'")
+    p.add_argument("--at", help="when, ISO format; defaults to now")
+    p.add_argument("--note", help="anything worth remembering about the test")
+    p.set_defaults(func=cmd_handtest)
+
     p = sub.add_parser("note", help="log a free-text entry against the pool")
     p.add_argument("text")
     p.add_argument("--at", help="when, ISO format; defaults to now")
@@ -178,6 +187,48 @@ def main():
     args.func(args)
 
 
+
+
+# What a liquid kit measures, mapped to the sensor's own field names so the two
+# can be compared directly.
+HANDTEST_FIELDS = {
+    "fc": ("free_cl", "ppm"), "ph": ("ph", ""), "ta": ("ta", "ppm"),
+    "ch": ("ch", "ppm"), "cya": ("cya", "ppm"), "salt": ("salt", "ppm"),
+}
+
+
+def cmd_handtest(args):
+    """Records a manual test result alongside the sensor's own readings.
+
+    A drop-count titration is more trustworthy than the pod when the two
+    disagree, and it is the only chemistry available at all while the pod is
+    failing to measure. Recording it means the dashboard has something to show,
+    and that a disagreement is visible rather than remembered.
+    """
+    values = {}
+    for flag, (field, _unit) in HANDTEST_FIELDS.items():
+        value = getattr(args, flag, None)
+        if value is not None:
+            values[field] = value
+    if not values:
+        print("Nothing recorded - pass at least one reading, e.g. --fc 5.2 --ph 7.5",
+              file=sys.stderr)
+        sys.exit(1)
+
+    events = load_events()
+    when = args.at or datetime.now(timezone.utc).isoformat()
+    events[when] = {
+        "type": "hand_test",
+        "values": values,
+        "kit": args.kit,
+        "note": args.note,
+        "recorded_at": datetime.now(timezone.utc).isoformat(),
+    }
+    save_events(events)
+    print(f"Recorded hand test at {when[:16]}:")
+    for field, value in values.items():
+        print(f"   {field:8} = {value}")
+    print("Shown on the dashboard beside the sensor's own numbers.")
 
 
 def cmd_note(args):

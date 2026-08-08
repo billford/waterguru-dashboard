@@ -108,6 +108,36 @@ def _controller_volume(conn=None) -> float | None:
         return None
 
 
+def _latest_hand_test(newest: dict, salt: float | None) -> dict | None:
+    """The most recent manual test, with its own saturation index.
+
+    Worth its own index rather than borrowing the sensor's: when the two
+    disagree, seeing what each implies about the water is the point. And while
+    the pod is failing to measure, this is the only chemistry there is.
+    """
+    tests = [
+        (when, event) for when, event in trust.load_events().items()
+        if event.get("type") == "hand_test" and event.get("values")
+    ]
+    if not tests:
+        return None
+
+    when, event = max(tests, key=lambda pair: pair[0])
+    values = event["values"]
+    return {
+        "at": when,
+        "kit": event.get("kit"),
+        "note": event.get("note"),
+        "values": values,
+        # Sensor readings the same test can be compared against.
+        "sensor": {f: newest.get(f) for f in ("free_cl", "ph", "ta", "ch", "cya")},
+        "lsi": lsi.calculate(
+            values.get("ph"), newest.get("water_temp"), values.get("ch"),
+            values.get("ta"), values.get("cya"), values.get("salt") or salt,
+        ),
+    }
+
+
 def _controller_salt(conn=None) -> float | None:
     """Salt from the controller - the dominant dissolved solid, which sets K."""
     if conn is None:
@@ -162,6 +192,7 @@ def build_payload(rows: list[dict], now: datetime = None, conn=None) -> dict:
             "freshness": freshness_for(wb_rows, now),
             # Ties the five panel numbers together into the question none of
             # them answers alone: is this water dissolving the pool?
+            "hand_test": _latest_hand_test(newest, _controller_salt(conn)),
             "lsi": lsi.calculate(
                 newest.get("ph"), newest.get("water_temp"), newest.get("ch"),
                 newest.get("ta"), newest.get("cya"), _controller_salt(conn),
