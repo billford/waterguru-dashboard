@@ -986,8 +986,13 @@ function renderSystem() {
   if (!s) { card.style.display = 'none'; return; }
   card.style.display = '';
 
+  // "off" from a single sample is misleading for a pump that runs almost
+  // continuously - the fetch happens to land in its daily cooldown.
+  const pump = s.pump_context || {};
   document.getElementById('systemSub').textContent =
-    s.pump_running ? '· pump running' : '· pump off';
+    s.pump_running ? '· pump running'
+      : pump.brief_pause ? '· pump paused (daily cooldown)'
+      : '· pump off';
 
   const heater = !s.heater_enabled ? 'off'
     : s.heater_calling ? 'heating' : 'idle (at setpoint)';
@@ -1043,7 +1048,7 @@ function renderSystem() {
   }
 
   const note = document.getElementById('systemNote');
-  const combined = [s.volume_mismatch, s.system_note].filter(Boolean).join(' ');
+  const combined = [pump.note, s.volume_mismatch, s.system_note].filter(Boolean).join(' ');
   if (combined) {
     note.style.display = '';
     document.getElementById('systemNoteText').textContent = combined;

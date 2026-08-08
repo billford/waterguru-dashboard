@@ -279,6 +279,55 @@ def declared_runtime_fraction() -> float | None:
         return None
 
 
+# A pump that runs 23h45m a day pauses briefly for a cooldown. A single sample
+# taken inside that window says "off", which is true for four more minutes and
+# misleading for the twelve hours the dashboard then displays it.
+BRIEF_PAUSE_MINUTES = 45
+
+
+def pump_context(state: dict, history: list[dict]) -> dict:
+    """Whether the pump being off right now means anything.
+
+    The twice-daily fetch happens to land inside this pump's cooldown window, so
+    the published snapshot claimed the pump was off every morning and stayed
+    that way until evening. The ten-minute poll history distinguishes a
+    scheduled pause from an actual stop.
+    """
+    running = bool(state.get("pump_running"))
+    if running:
+        return {"running": True, "brief_pause": False, "note": None}
+
+    from freshness import parse_ts
+    now = parse_ts(state.get("read_at"))
+    recent_run = None
+    for row in history:                       # history is newest-first
+        if row.get("pump_running") and parse_ts(row.get("read_at")):
+            recent_run = parse_ts(row["read_at"])
+            break
+
+    if now is None or recent_run is None:
+        return {"running": False, "brief_pause": False,
+                "note": "The pump is off and there is no recent record of it running."}
+
+    minutes = (now - recent_run).total_seconds() / 60
+    if minutes <= BRIEF_PAUSE_MINUTES:
+        return {
+            "running": False,
+            "brief_pause": True,
+            "minutes_since_running": round(minutes),
+            "note": f"The pump is paused - it was running {round(minutes)} minutes ago. "
+                    "This pool runs almost continuously with a short daily cooldown, so a "
+                    "brief stop is the schedule rather than a fault.",
+        }
+    return {
+        "running": False,
+        "brief_pause": False,
+        "minutes_since_running": round(minutes),
+        "note": f"The pump has been off for about {round(minutes / 60)} hours. Nothing "
+                "circulates, filters or chlorinates while it is stopped.",
+    }
+
+
 def pump_runtime_fraction(rows: list[dict]) -> float | None:
     """Rough share of recent readings with the pump running.
 
@@ -478,6 +527,7 @@ def export_system(out_path, host: str = None, lookback: int = 200) -> dict | Non
     finally:
         conn.close()
 
+    payload_pump = pump_context(state, history)
     measured = pump_runtime_fraction(history) if len(history) >= MIN_SAMPLES_FOR_RUNTIME else None
     declared = declared_runtime_fraction()
 
@@ -497,6 +547,7 @@ def export_system(out_path, host: str = None, lookback: int = 200) -> dict | Non
         cya = row["cya"] if row else None
     except Exception:
         cya = None
+    payload["pump_context"] = payload_pump
     payload["system_note"] = system_note(state, cya)
 
     import restriction

@@ -821,6 +821,20 @@ swallowed: log housekeeping must never be the thing that breaks a run.
 
 ---
 
+## A pump that pauses is not a pump that stopped
+
+This pump runs 23h45m a day with a short cooldown, and the 08:00 fetch happens
+to land inside it. So the published snapshot read `pump_gpm: 0` and the
+dashboard announced the pump was off — and kept announcing it for twelve hours,
+until the evening fetch replaced the file.
+
+An instantaneous sample is a poor description of a machine with a duty cycle.
+The ten-minute poll history distinguishes the two: off now but running within
+the last 45 minutes is a scheduled pause; off for hours is a stop worth acting
+on, and the card says which.
+
+---
+
 ## Saturation index — is the water dissolving the pool?
 
 Five numbers already collected (pH, alkalinity, calcium, stabilizer,

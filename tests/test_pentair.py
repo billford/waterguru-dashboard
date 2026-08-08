@@ -255,3 +255,41 @@ def test_several_changes_at_once_are_all_recorded():
 
 def test_a_missing_value_is_not_reported_as_a_change():
     assert pentair.detect_changes(BEFORE, {**BEFORE, "setpoint": None}) == []
+
+
+# ---- a pump that is off for four minutes is not a pump that has stopped ----
+
+def _hist(*minutes_ago_running):
+    """History newest-first: (minutes before 08:00, running)."""
+    from datetime import datetime, timedelta, timezone
+    base = datetime(2026, 8, 8, 12, 0, tzinfo=timezone.utc)
+    return [{"read_at": (base - timedelta(minutes=m)).isoformat(), "pump_running": r}
+            for m, r in minutes_ago_running]
+
+
+def test_a_running_pump_needs_no_explanation():
+    ctx = pentair.pump_context({"pump_running": True, "read_at": "2026-08-08T12:00:00+00:00"}, [])
+    assert ctx["running"] is True and ctx["note"] is None
+
+
+def test_a_pump_off_for_minutes_is_a_scheduled_pause():
+    """The twice-daily fetch lands inside this pump's cooldown, so the published
+    snapshot claimed the pump was off every morning until the evening run."""
+    state = {"pump_running": False, "read_at": "2026-08-08T12:00:00+00:00"}
+    ctx = pentair.pump_context(state, _hist((14, 0), (24, 1), (34, 1)))
+    assert ctx["brief_pause"] is True
+    assert "the schedule rather than a fault" in ctx["note"]
+
+
+def test_a_pump_off_for_hours_is_reported_as_a_problem():
+    state = {"pump_running": False, "read_at": "2026-08-08T12:00:00+00:00"}
+    ctx = pentair.pump_context(state, _hist((60, 0), (240, 0), (300, 1)))
+    assert ctx["brief_pause"] is False
+    assert "Nothing circulates" in ctx["note"]
+
+
+def test_a_pump_with_no_record_of_running_is_not_called_a_pause():
+    state = {"pump_running": False, "read_at": "2026-08-08T12:00:00+00:00"}
+    ctx = pentair.pump_context(state, _hist((10, 0), (20, 0)))
+    assert ctx["brief_pause"] is False
+    assert "no recent record" in ctx["note"]
