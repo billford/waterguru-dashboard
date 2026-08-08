@@ -113,6 +113,7 @@ NEW_COLUMNS = {
     # a target of 400 says nothing about whether 300 is fine or alarming.
     "ranges_json": "TEXT",
     "skimmer_flow_green_min": "REAL",
+    "cover_type": "TEXT",
     # Raw pad counts, not just the rounded percentage. A failed measurement
     # consumes a couple of pads without producing a reading, and at 1 pad in 192
     # the percentage doesn't move enough to see it.
@@ -350,6 +351,7 @@ def parse_waterbody(fetched_at: str, wb: dict) -> dict:
         "free_cl_green_min": free_cl_green_min,
         "free_cl_green_max": free_cl_green_max,
         "size_gallons": (wb.get("waterBody") or {}).get("sizeGallons"),
+        "cover_type": (wb.get("waterBody") or {}).get("cover"),
         "pod_setup_time": pod.get("setUpTime"),
         "pump_scan_state": pod.get("pumpScanState"),
         "meas_hour": meas_times[0].get("hour"),
@@ -393,7 +395,7 @@ def store_snapshot(fetched_at: str, data: dict, db_path: Path = None):
                     fetched_at, water_body_id, name, status, water_temp, latest_measure_time,
                     free_cl, free_cl_target, ph, ph_target, skimmer_flow, skimmer_flow_target,
                     ta, ta_target, ch, ch_target, cya, cya_target, th, th_target,
-                    panel_measure_time, free_cl_green_min, free_cl_green_max, size_gallons, ranges_json, skimmer_flow_green_min, cassette_pads_left, cassette_pads_max,
+                    panel_measure_time, free_cl_green_min, free_cl_green_max, size_gallons, ranges_json, skimmer_flow_green_min, cover_type, cassette_pads_left, cassette_pads_max,
                     cassette_pct_left, cassette_days_left, cassette_status, cassette_urgent,
                     battery_pct_left, battery_time_left, battery_status,
                     pod_setup_time, pump_scan_state, meas_hour, meas_minute, meas_auto_hours,
@@ -402,7 +404,7 @@ def store_snapshot(fetched_at: str, data: dict, db_path: Path = None):
                     :fetched_at, :water_body_id, :name, :status, :water_temp, :latest_measure_time,
                     :free_cl, :free_cl_target, :ph, :ph_target, :skimmer_flow, :skimmer_flow_target,
                     :ta, :ta_target, :ch, :ch_target, :cya, :cya_target, :th, :th_target,
-                    :panel_measure_time, :free_cl_green_min, :free_cl_green_max, :size_gallons, :ranges_json, :skimmer_flow_green_min, :cassette_pads_left, :cassette_pads_max,
+                    :panel_measure_time, :free_cl_green_min, :free_cl_green_max, :size_gallons, :ranges_json, :skimmer_flow_green_min, :cover_type, :cassette_pads_left, :cassette_pads_max,
                     :cassette_pct_left, :cassette_days_left, :cassette_status, :cassette_urgent,
                     :battery_pct_left, :battery_time_left, :battery_status,
                     :pod_setup_time, :pump_scan_state, :meas_hour, :meas_minute, :meas_auto_hours,

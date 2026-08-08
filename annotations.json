@@ -10,6 +10,16 @@
       "note": "Cleared skimmer weir - cassette was holding it open. Also cleaned pump basket.",
       "recorded_at": "2026-08-06T15:53:10.664687+00:00",
       "type": "note"
+    },
+    "2026-08-08T21:49:01.609008+00:00": {
+      "kit": "liquid drop kit",
+      "note": "Chlorine reagent produced no colour at all. pH read high-7.2, slightly higher when the sample was left still. FC recorded as 0 pending a dilution retest to rule out reagent bleach-out.",
+      "recorded_at": "2026-08-08T21:49:01.609138+00:00",
+      "type": "hand_test",
+      "values": {
+        "free_cl": 0.0,
+        "ph": 7.2
+      }
     }
   },
   "measurements": {

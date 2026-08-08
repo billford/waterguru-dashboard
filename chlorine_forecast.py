@@ -84,6 +84,15 @@ IN_RANGE_FACTOR = 1.35
 # Chlorine loss multipliers by cyanuric acid level, relative to an adequately
 # stabilized pool (30+ ppm, the bottom of the device's own GREEN band). Coarse
 # bands rather than a curve, because the honest precision here is low.
+# A cover blocks the UV that destroys chlorine, which is the mechanism low
+# stabilizer leaves you exposed to. Covered, CYA largely stops mattering and
+# generation runs unopposed - so the same settings that would drain an open pool
+# can drive a covered one well past the top of range. WaterGuru's own config
+# carries this (`cover`), and ignoring it made the model wrong in the dangerous
+# direction: it argued for adding chlorine to a pool that may be at 19 ppm.
+COVERED_UV_FRACTION = 0.35
+
+
 CYA_BANDS = (
     (30.0, 1.0),   # adequately stabilized - the reference
     (20.0, 1.3),
@@ -98,14 +107,19 @@ def _temp_factor(temp_f: float | None) -> float:
     return Q10 ** ((temp_f - REF_TEMP_F) / 10.0)
 
 
-def _cya_factor(cya: float | None) -> float:
-    """How much faster this pool burns chlorine for want of stabilizer."""
+def _cya_factor(cya: float | None, covered: bool = False) -> float:
+    """How much faster this pool burns chlorine for want of stabilizer.
+
+    Stabilizer protects chlorine from UV, so its absence only costs you where UV
+    reaches the water. Under a cover the penalty largely disappears - the
+    multiplier is pulled back toward 1.0 rather than applied in full.
+    """
     if cya is None:
         return 1.0
-    for threshold, factor in CYA_BANDS:
-        if cya >= threshold:
-            return factor
-    return CYA_BANDS[-1][1]
+    factor = next((f for threshold, f in CYA_BANDS if cya >= threshold), CYA_BANDS[-1][1])
+    if covered and factor > 1.0:
+        return 1.0 + (factor - 1.0) * COVERED_UV_FRACTION
+    return factor
 
 
 def decay_segments(rows: list[dict], events: dict = None, generation: float = 0.0) -> list[dict]:
@@ -221,7 +235,7 @@ def _forecast_temps(weather: dict | None) -> dict:
 
 
 def project(start_value, start_date, rate_ppm_per_day, water_temp,
-            horizon=HORIZON_DAYS, cya=None, generation=0.0) -> list[dict]:
+            horizon=HORIZON_DAYS, cya=None, generation=0.0, covered=False) -> list[dict]:
     """Steps chlorine forward a day at a time.
 
     Loss scales with water temperature and stabilizer; generation from the salt
@@ -234,7 +248,7 @@ def project(start_value, start_date, rate_ppm_per_day, water_temp,
     """
     out = []
     value = start_value
-    factor = _temp_factor(water_temp) * _cya_factor(cya)
+    factor = _temp_factor(water_temp) * _cya_factor(cya, covered)
     for i in range(1, horizon + 1):
         day = start_date + timedelta(days=i)
         value = max(0.0, value + generation - rate_ppm_per_day * factor)
@@ -248,7 +262,8 @@ def project(start_value, start_date, rate_ppm_per_day, water_temp,
     return out
 
 
-def decay_to_now(value, measured_at, now, rate_ppm_per_day, water_temp, cya=None, generation=0.0):
+def decay_to_now(value, measured_at, now, rate_ppm_per_day, water_temp, cya=None, generation=0.0,
+                 covered=False):
     """Chlorine level right now, decayed forward from the last measurement.
 
     Walks whole days at each day's own temperature, then applies the remaining
@@ -259,7 +274,7 @@ def decay_to_now(value, measured_at, now, rate_ppm_per_day, water_temp, cya=None
     # earlier version reached into the forecast map, which never contains past
     # dates, so every stale day silently fell through to the *last* forecast
     # day's air temperature - five days out, and the wrong quantity besides.
-    factor = _temp_factor(water_temp) * _cya_factor(cya)
+    factor = _temp_factor(water_temp) * _cya_factor(cya, covered)
     remaining = max(0.0, (now - measured_at).total_seconds() / 86400)
 
     while remaining > 0:
@@ -411,7 +426,8 @@ def _pretty(date_str: str) -> str:
 
 def build_forecast(rows: list[dict], target, weather: dict | None, now: datetime = None,
                    cya_target=None, green_min=None, green_max=None,
-                   untrusted: set = None, events: dict = None, system: dict = None) -> dict:
+                   untrusted: set = None, events: dict = None, system: dict = None,
+                   covered: bool = False) -> dict:
     now = now or datetime.now(timezone.utc)
     untrusted = untrusted or set()
     rows = dedupe_by_measurement(rows)
@@ -510,7 +526,7 @@ def build_forecast(rows: list[dict], target, weather: dict | None, now: datetime
 
     estimated_now = decay_to_now(
         current, measured_at, now, rate["ppm_per_day"], water_temp, cya,
-        generation=generation,
+        generation=generation, covered=covered,
     )
     projection = [
         {
@@ -521,7 +537,7 @@ def build_forecast(rows: list[dict], target, weather: dict | None, now: datetime
         }
     ] + project(
         estimated_now, now, rate["ppm_per_day"], water_temp,
-        horizon=HORIZON_DAYS, cya=cya, generation=generation,
+        horizon=HORIZON_DAYS, cya=cya, generation=generation, covered=covered,
     )
 
     # "In range" means what the device means, when it tells us: it judges
@@ -554,7 +570,8 @@ def build_forecast(rows: list[dict], target, weather: dict | None, now: datetime
             "green_max": ceiling,
             "water_temp": latest.get("water_temp"),
             "cya": cya,
-            "cya_factor": round(_cya_factor(cya), 2),
+            "cya_factor": round(_cya_factor(cya, covered), 2),
+            "covered": covered,
         },
         "rate": rate,
         "projection": projection,
@@ -606,7 +623,7 @@ def export_forecast(weather_path: Path, out_path: Path, now: datetime = None):
     try:
         wb = conn.execute(
             """SELECT water_body_id, name, free_cl_target, cya_target,
-                      free_cl_green_min, free_cl_green_max
+                      free_cl_green_min, free_cl_green_max, cover_type
                FROM snapshots ORDER BY fetched_at DESC LIMIT 1"""
         ).fetchone()
         if wb is None:
@@ -630,6 +647,9 @@ def export_forecast(weather_path: Path, out_path: Path, now: datetime = None):
                 untrusted=trust.untrusted_keys(rows),
                 events=trust.load_events(),
                 system=_system_state(),
+                # A pool that spends most of its time covered loses far less
+                # chlorine to UV, whatever its stabilizer level.
+                covered=(wb["cover_type"] or "").upper() in ("AUTO", "MANUAL", "YES"),
             )
             payload["water_body_id"] = wb["water_body_id"]
     finally:

@@ -452,6 +452,20 @@ a rate fitted from a hot, unstabilized week already has that burn baked in. It
 also means the projection responds correctly when conditions change: add
 stabilizer, and the same fitted history projects a slower burn.
 
+**A cover changes what low stabilizer costs you.** Stabilizer protects chlorine
+from UV, so its absence only matters where UV reaches the water. This pool has
+an automatic cover and spends much of its time under it, which pulls the penalty
+most of the way back toward nothing — and the model now reads `cover` from
+WaterGuru's own configuration rather than assuming an open pool.
+
+That omission mattered. Reasoning without it, the model said a pool with
+stabilizer at 14 ppm would be draining chlorine fast, which argued for *adding*
+some. Accounting for the cover, the same settings and the same starting reading
+project the pool to roughly 19 ppm instead — three times over the top of range,
+and past the point where DPD reagent bleaches to clear and reads exactly like
+zero. Wrong in the direction that gets chlorine added to a pool that already has
+too much.
+
 When stabilizer is low, the card says so directly, because the intuitive
 response to chlorine vanishing is to add more chlorine — which treats the
 symptom while sunlight keeps destroying it as fast as it goes in.

@@ -342,3 +342,34 @@ def test_assumed_runtime_blocks_the_recommendation():
 
 def test_no_controller_data_means_no_salt_cell_block():
     assert build_forecast([reading(10, 7.3)], 3.0, WEATHER, NOW)["salt_cell"] is None
+
+
+# ---- a cover blocks the UV that low stabilizer leaves you exposed to ----
+
+def test_a_cover_blunts_the_low_stabilizer_penalty():
+    """Stabilizer protects chlorine from UV, so its absence only costs you where
+    UV reaches the water. Ignoring the cover made the model wrong in the
+    dangerous direction - it argued for adding chlorine to a pool that may have
+    been accumulating it."""
+    from chlorine_forecast import _cya_factor
+
+    assert _cya_factor(14) == 1.8
+    assert _cya_factor(14, covered=True) == pytest.approx(1.28, abs=0.01)
+
+
+def test_a_cover_changes_nothing_for_an_adequately_stabilized_pool():
+    from chlorine_forecast import _cya_factor
+
+    assert _cya_factor(50) == _cya_factor(50, covered=True) == 1.0
+
+
+def test_a_covered_pool_holds_chlorine_that_an_open_one_would_lose():
+    rows = [reading(d, 12.0 - d * 0.5, temp=85.0, cya=14.0) for d in range(1, 6)]
+    open_pool = build_forecast(rows, 3.0, WEATHER, NOW, covered=False)
+    covered = build_forecast(rows, 3.0, WEATHER, NOW, covered=True)
+    assert covered["projection"][5]["free_cl"] > open_pool["projection"][5]["free_cl"]
+
+
+def test_the_cover_is_reported_so_the_assumption_is_visible():
+    f = build_forecast([reading(10, 8.0, cya=14.0)], 3.0, WEATHER, NOW, covered=True)
+    assert f["current"]["covered"] is True
