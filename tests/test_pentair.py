@@ -293,3 +293,17 @@ def test_a_pump_with_no_record_of_running_is_not_called_a_pause():
     ctx = pentair.pump_context(state, _hist((10, 0), (20, 0)))
     assert ctx["brief_pause"] is False
     assert "no recent record" in ctx["note"]
+
+
+def test_the_heater_dropping_out_during_the_pump_cooldown_is_not_a_decision():
+    """The heater follows the pump, so a cooldown produced two log entries a
+    day recording the schedule rather than anything anyone chose."""
+    before = {**BEFORE, "pump_running": True}
+    during_cooldown = {**BEFORE, "heater_enabled": False, "pump_running": False}
+    assert pentair.detect_changes(before, during_cooldown) == []
+
+
+def test_switching_the_heater_off_while_the_pump_runs_is_still_logged():
+    before = {**BEFORE, "pump_running": True}
+    after = {**BEFORE, "heater_enabled": False, "pump_running": True}
+    assert "Heater changed from on to off" in pentair.detect_changes(before, after)[0]["description"]

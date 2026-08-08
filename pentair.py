@@ -612,6 +612,12 @@ def detect_changes(previous: dict, current: dict) -> list[dict]:
         old, new = previous.get(field), current.get(field)
         if old is None or new is None or old == new:
             continue
+        # The heater follows the pump: it drops out during the daily cooldown
+        # and comes back after, producing two entries a day that record the
+        # schedule rather than a decision. Burying the real entries is exactly
+        # what this log exists to avoid.
+        if field == "heater_enabled" and current.get("pump_running") is False:
+            continue
         changes.append({
             "field": field,
             "old_value": str(old),
