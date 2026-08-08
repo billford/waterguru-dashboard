@@ -134,6 +134,7 @@ def _latest_hand_test(newest: dict, salt: float | None) -> dict | None:
         "lsi": lsi.calculate(
             values.get("ph"), newest.get("water_temp"), values.get("ch"),
             values.get("ta"), values.get("cya"), values.get("salt") or salt,
+            surface=newest.get("surface_type"),
         ),
     }
 
@@ -196,6 +197,7 @@ def build_payload(rows: list[dict], now: datetime = None, conn=None) -> dict:
             "lsi": lsi.calculate(
                 newest.get("ph"), newest.get("water_temp"), newest.get("ch"),
                 newest.get("ta"), newest.get("cya"), _controller_salt(conn),
+                surface=newest.get("surface_type"),
             ),
         }
 

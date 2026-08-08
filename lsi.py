@@ -40,6 +40,32 @@ _TEMP_FACTORS = [(32, 0.0), (37, 0.1), (46, 0.2), (53, 0.3), (60, 0.4),
 # Cyanurate's share of a measured total alkalinity reading, near typical pool pH.
 CYA_ALKALINITY_SHARE = 0.33
 
+# Below this, published guidance agrees the water turns aggressive - it attacks
+# plaster, grout and metal fittings alike. Sources differ on the *target* well
+# above this floor (Pentair cites APSP's 200-300; plaster guidance often says
+# 250-350), but not on the floor itself.
+CALCIUM_FLOOR = 200
+
+# What the water is actually in contact with decides what a corrosive index
+# costs you, and therefore how much calcium is worth adding.
+#
+# A cementitious finish - plaster, pebble, quartz - has calcium in its structure,
+# so aggressive water dissolves the surface itself and wants the middle of the
+# range. A tiled pool has none: the glazed tile is inert, and the exposure is the
+# cementitious GROUT between it, plus the heater exchanger, salt cell and metal
+# fittings. Still real, still worth fixing, but satisfied nearer the floor.
+SURFACE_TARGETS = {
+    "PLASTER": (250, 350, "the plaster itself, which has calcium in its structure"),
+    "PEBBLE": (250, 350, "the cement binder holding the pebbles"),
+    "QUARTZ": (250, 350, "the cement binder"),
+    "TILE": (200, 250, "the grout between the tiles, and the heater and salt cell"),
+    "VINYL": (175, 225, "the heater and metal fittings"),
+    "FIBERGLASS": (175, 225, "the heater and metal fittings"),
+}
+DEFAULT_SURFACE = "PLASTER"
+
+# Pentair's own manuals give this same balanced band for the saturation index,
+# and warn that outside it the water damages equipment or scales the salt cell.
 CORROSIVE_BELOW = -0.3
 SCALING_ABOVE = 0.3
 SEVERE_BELOW = -0.5
@@ -67,7 +93,8 @@ def carbonate_alkalinity(total_alkalinity: float, cya: float | None) -> float:
     return max(total_alkalinity - (cya or 0) * CYA_ALKALINITY_SHARE, 1.0)
 
 
-def calculate(ph, temp_f, calcium_hardness, total_alkalinity, cya=None, salt_ppm=None) -> dict | None:
+def calculate(ph, temp_f, calcium_hardness, total_alkalinity, cya=None, salt_ppm=None,
+              surface=None) -> dict | None:
     """LSI and what it means, or None if an input is missing."""
     if None in (ph, temp_f, calcium_hardness, total_alkalinity):
         return None
@@ -110,7 +137,8 @@ def calculate(ph, temp_f, calcium_hardness, total_alkalinity, cya=None, salt_ppm
         "carbonate_alkalinity": round(carbonate, 1),
         "k": k,
         "text": _describe(value, verdict, severity),
-        "lever": _biggest_lever(ph, calcium_hardness, total_alkalinity, cya),
+        "surface": surface,
+        "lever": _biggest_lever(ph, calcium_hardness, total_alkalinity, cya, surface),
     }
 
 
@@ -132,16 +160,20 @@ def _describe(value, verdict, severity) -> str:
     return f"Saturation index {value:+.2f} - balanced. The water is neither dissolving nor depositing calcium."
 
 
-def _biggest_lever(ph, calcium_hardness, total_alkalinity, cya) -> str | None:
+def _biggest_lever(ph, calcium_hardness, total_alkalinity, cya, surface=None) -> str | None:
     """Which input is furthest from where it should be.
 
     pH moves LSI one-for-one and is the fastest to change, so it usually wins -
     but if calcium is the outlier, raising pH alone just masks the real problem.
     """
-    if calcium_hardness < 200:
+    if calcium_hardness < CALCIUM_FLOOR:
+        low, high, exposed = SURFACE_TARGETS.get(
+            (surface or DEFAULT_SURFACE).upper(), SURFACE_TARGETS[DEFAULT_SURFACE])
         return (
-            f"Calcium is the outlier at {calcium_hardness:g} ppm (a plaster pool wants 300-400). "
-            "Raising pH alone would move the index without fixing what's driving it."
+            f"Calcium is the outlier at {calcium_hardness:g} ppm, below the {CALCIUM_FLOOR} ppm "
+            f"at which water turns aggressive. On this pool what that attacks is {exposed}. "
+            f"For this surface {low}-{high} ppm is sufficient - raising pH alone would move the "
+            "index without fixing what drives it."
         )
     if ph < 7.4:
         return f"pH at {ph:g} is the fastest lever - it moves the index one-for-one."

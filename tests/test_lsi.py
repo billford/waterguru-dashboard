@@ -88,7 +88,7 @@ def test_low_calcium_is_named_as_the_real_lever():
     result = lsi.calculate(ph=7.2, temp_f=84, calcium_hardness=152,
                            total_alkalinity=151, cya=14, salt_ppm=4350)
     assert "Calcium is the outlier" in result["lever"]
-    assert "Raising pH alone" in result["lever"]
+    assert "raising pH alone would move the" in result["lever"]
 
 
 def test_ph_is_the_lever_when_calcium_is_fine():
@@ -115,3 +115,49 @@ def test_impossible_inputs_yield_nothing():
 def test_stabilizer_and_salt_are_optional():
     assert lsi.calculate(ph=7.5, temp_f=84, calcium_hardness=300,
                          total_alkalinity=100) is not None
+
+
+# ---- what the water is in contact with decides what a corrosive index costs ----
+
+def test_the_index_itself_does_not_depend_on_the_surface():
+    """LSI is pH, calcium, alkalinity, temperature and dissolved solids. The
+    surface decides whether the answer matters, not what the answer is."""
+    plaster = lsi.calculate(ph=7.2, temp_f=84, calcium_hardness=152,
+                            total_alkalinity=151, cya=14, salt_ppm=4300, surface="PLASTER")
+    tile = lsi.calculate(ph=7.2, temp_f=84, calcium_hardness=152,
+                         total_alkalinity=151, cya=14, salt_ppm=4300, surface="TILE")
+    assert plaster["value"] == tile["value"] == -0.55
+
+
+def test_a_plaster_pool_is_told_its_surface_is_at_stake():
+    result = lsi.calculate(ph=7.2, temp_f=84, calcium_hardness=152,
+                           total_alkalinity=151, cya=14, salt_ppm=4300, surface="PLASTER")
+    assert "the plaster itself" in result["lever"]
+    assert "250-350" in result["lever"]
+
+
+def test_a_tiled_pool_is_told_the_grout_and_equipment_are_at_stake():
+    """Glazed tile is inert; the exposure is the cementitious grout and the metal."""
+    result = lsi.calculate(ph=7.2, temp_f=84, calcium_hardness=152,
+                           total_alkalinity=151, cya=14, salt_ppm=4300, surface="TILE")
+    assert "grout" in result["lever"]
+    assert "200-250" in result["lever"]
+    assert "plaster" not in result["lever"]
+
+
+def test_a_tiled_pool_needs_less_calcium_than_a_plastered_one():
+    assert lsi.SURFACE_TARGETS["TILE"][0] < lsi.SURFACE_TARGETS["PLASTER"][0]
+
+
+def test_an_unknown_surface_falls_back_to_the_most_demanding_case():
+    """Guessing low would under-protect a plaster pool; guessing high only costs
+    a little calcium."""
+    result = lsi.calculate(ph=7.2, temp_f=84, calcium_hardness=152,
+                           total_alkalinity=151, cya=14, salt_ppm=4300, surface="MYSTERY")
+    assert "250-350" in result["lever"]
+
+
+def test_calcium_above_the_floor_is_not_named_as_the_lever():
+    result = lsi.calculate(ph=7.0, temp_f=84, calcium_hardness=250,
+                           total_alkalinity=100, cya=40, salt_ppm=3200, surface="TILE")
+    assert "Calcium is the outlier" not in (result["lever"] or "")
