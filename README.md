@@ -874,6 +874,28 @@ time. A gap you can see the reason for is a different thing from a gap you can't
 
 ---
 
+## Evidence for a support ticket
+
+`support_report.py` builds a diagnostic summary from the API and the local
+history — pad counts, measurement timestamps, flow at the moment of each
+attempt, connectivity — none of which the mobile app surfaces.
+
+```bash
+./venv/bin/python support_report.py
+```
+
+The pad count is the useful part. A completed measurement consumes about ten
+pads; an attempt that aborts consumes two to four and leaves the measurement
+timestamp untouched, which in the app is indistinguishable from never having
+tried. Reading the two together turns "it stopped measuring" into "four attempts
+consumed 2–4 pads each against a normal 10, at flows of 3, 16, 5 and 11 gpm,
+with the pod checking in throughout" — a question a support engineer can act on.
+
+Pad counts are backfilled from `data/history.jsonl`, which archives every raw
+payload, so history predating the column is still available.
+
+---
+
 ## Sensor health
 
 WaterGuru's status flags answer "is the water OK?". They don't answer "is the
