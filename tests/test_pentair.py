@@ -151,10 +151,22 @@ def test_unparseable_numbers_become_none():
 
 # ---- the interpretation that makes the data useful ----
 
-def test_high_salt_is_called_out_with_the_reason_it_matters():
+def test_salt_above_pentairs_ideal_is_called_out_against_their_figures():
+    """Uses Pentair's published 3200-3400 ideal and 4500 cap, not round numbers
+    I picked before reading their manual."""
     note = pentair.system_note({"salt_ppm": 4350})
     assert "4350 ppm" in note
-    assert "corrodes" in note
+    assert "3200-3400" in note
+    assert "4500" in note
+
+
+def test_salt_at_the_cell_cutoff_says_production_suspends():
+    note = pentair.system_note({"salt_ppm": 4600})
+    assert "suspends production" in note
+
+
+def test_salt_below_the_operating_minimum_is_called_out():
+    assert "operating minimum" in pentair.system_note({"salt_ppm": 2500})
 
 
 def test_salt_in_range_says_nothing():

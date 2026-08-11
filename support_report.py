@@ -25,8 +25,7 @@ from db import connect
 
 HERE = Path(__file__).resolve().parent
 
-# Pads a completed measurement consumes, against which a partial attempt stands out.
-COMPLETE_MEASUREMENT_PADS = 10
+from pentair import COMPLETE_MEASUREMENT_PADS
 
 
 def _local(iso) -> str:

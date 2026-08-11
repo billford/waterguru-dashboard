@@ -1,4 +1,11 @@
+from datetime import datetime, timezone
+
 import anomaly
+
+# Pinned so these don't rot as the calendar moves. detect_jump ages findings out
+# after a week, so tests dated in the past silently began failing once real time
+# passed them - a fragility introduced with that check.
+NOW = datetime(2026, 8, 3, 12, 0, tzinfo=timezone.utc)
 
 
 def reading(day, **fields):
@@ -33,24 +40,24 @@ def test_a_short_history_is_not_enough_to_call_a_flatline():
 
 def test_ph_moving_further_than_chemistry_allows_is_flagged():
     rows = [reading(1, ph=7.5), reading(2, ph=9.5)]
-    found = anomaly.detect_jump(rows, "ph")
+    found = anomaly.detect_jump(rows, "ph", NOW)
     assert found and found["from"] == 7.5 and found["to"] == 9.5
 
 
 def test_a_believable_ph_drift_is_not_flagged():
-    assert anomaly.detect_jump([reading(1, ph=7.5), reading(2, ph=7.8)], "ph") is None
+    assert anomaly.detect_jump([reading(1, ph=7.5), reading(2, ph=7.8)], "ph", NOW) is None
 
 
 def test_a_big_chlorine_jump_is_allowed_because_shocking_is_real():
     """Chlorine legitimately swings hard after dosing; pH doesn't."""
-    assert anomaly.detect_jump([reading(1, free_cl=3.0), reading(2, free_cl=9.0)], "free_cl") is None
+    assert anomaly.detect_jump([reading(1, free_cl=3.0), reading(2, free_cl=9.0)], "free_cl", NOW) is None
 
 
 def test_a_wider_time_gap_permits_a_larger_change():
     close = [reading(1, ph=7.0), reading(2, ph=8.3)]
     apart = [reading(1, ph=7.0), reading(10, ph=8.3)]
-    assert anomaly.detect_jump(close, "ph") is not None
-    assert anomaly.detect_jump(apart, "ph") is None
+    assert anomaly.detect_jump(close, "ph", NOW) is not None
+    assert anomaly.detect_jump(apart, "ph", datetime(2026, 8, 11, 12, 0, tzinfo=timezone.utc)) is None
 
 
 def test_a_channel_that_stops_reporting_is_flagged():

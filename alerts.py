@@ -38,9 +38,9 @@ RENAG_DAYS = 7
 # How close to the bottom of the acceptable band counts as 'no margin left'.
 FLOW_MARGIN_FRACTION = 0.15
 
-# Pads a completed measurement consumes; fewer than this with no new reading
-# means the attempt aborted partway.
-COMPLETE_MEASUREMENT_PADS = 8
+# Imported rather than redefined: this had drifted to 8 here against 10 in
+# support_report.py, so the same observation was described two different ways.
+from pentair import COMPLETE_MEASUREMENT_PADS  # noqa: E402
 
 
 def _mac_notification(title: str, message: str):

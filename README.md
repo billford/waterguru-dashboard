@@ -947,6 +947,36 @@ produces a low pH reading that looks like corroboration and isn't.
 
 ---
 
+## Where every number came from
+
+Three kinds of number end up in a codebase like this, and they deserve very
+different amounts of trust:
+
+- **Measured** — read from this installation. The 36-hour pump scan is
+  `pumpScanNumCycles × pumpScanIntervalMins` off the controller; the 10 pads a
+  measurement consumes was observed directly.
+- **Sourced** — published by a manufacturer or standards body, with a citation.
+  Pentair's salt range, the Langelier balanced band, the calcium floor.
+- **Heuristic** — a judgement, sometimes a round number that seemed about right.
+
+`constants.py` records which is which, and `tests/test_constants_audit.py`
+enforces it: add a threshold that shapes advice without recording its
+provenance and the suite fails. It caught one on its first run.
+
+This exists because the distinction had been invisible. Several heuristics were
+presented with the authority of a citation — "a plaster pool wants 300–400 ppm"
+was invented — and one *contradicted* the manufacturer: the salt-high threshold
+sat at 4,000 ppm when Pentair publishes 3,200–3,400 as ideal and 4,500 as the
+point where the cell suspends production. The same constant for "pads in a
+completed measurement" was also defined twice, as 8 in one module and 10 in
+another.
+
+The current split is **4 measured, 9 sourced, 15 heuristic**. The heuristics are
+not wrong, but they are opinions, and `COVERED_UV_FRACTION` alone moved a
+projection from 5.9 to 19.4 ppm — so they are labelled rather than buried.
+
+---
+
 ## Sensor health
 
 WaterGuru's status flags answer "is the water OK?". They don't answer "is the

@@ -340,10 +340,17 @@ def pump_runtime_fraction(rows: list[dict]) -> float | None:
     return round(sum(1 for r in rows if r.get("pump_running")) / len(rows), 2)
 
 
-# IntelliChlor cells want roughly 3000-3500 ppm; much above that offers no
-# benefit and accelerates corrosion, and the cell itself will fault out high.
-SALT_HIGH_PPM = 4000
-SALT_LOW_PPM = 2800
+# Pentair's published figures for IntelliChlor, rather than the round numbers I
+# picked before reading the manual. Ideal 3200-3400; the cell operates from 2700
+# to 4500 and suspends production above 4500 to protect itself.
+SALT_IDEAL_LOW = 3200
+SALT_IDEAL_HIGH = 3400
+SALT_OPERATING_MIN = 2700
+SALT_OPERATING_MAX = 4500
+
+# A completed measurement consumes this many pads - observed directly on the one
+# that succeeded (192 -> 182). Fewer, with no new reading, is an aborted attempt.
+COMPLETE_MEASUREMENT_PADS = 10
 
 # Output this high usually means the cell is compensating for something else -
 # most often stabilizer too low to protect the chlorine it makes.
@@ -394,14 +401,23 @@ def system_note(state: dict, cya: float = None) -> str | None:
     notes = []
 
     salt = state.get("salt_ppm")
-    if salt is not None and salt > SALT_HIGH_PPM:
+    if salt is not None and salt >= SALT_OPERATING_MAX:
         notes.append(
-            f"Salt is {salt:g} ppm, above the ~3000-3500 ppm these cells want. "
-            "Too high doesn't sanitize better - it corrodes fittings and can fault the cell. "
-            "It comes down by dilution, so it corrects itself as water is topped up."
+            f"Salt is {salt:g} ppm, at or above the {SALT_OPERATING_MAX} ppm point where "
+            "Pentair says the cell suspends production to protect itself. It comes down only "
+            "by dilution."
         )
-    elif salt is not None and salt < SALT_LOW_PPM:
-        notes.append(f"Salt is low at {salt:g} ppm; the cell will underproduce until it's raised.")
+    elif salt is not None and salt > SALT_IDEAL_HIGH:
+        notes.append(
+            f"Salt is {salt:g} ppm, above Pentair's ideal {SALT_IDEAL_LOW}-{SALT_IDEAL_HIGH} ppm "
+            f"but inside the operating range, which runs to {SALT_OPERATING_MAX}. Higher doesn't "
+            "sanitize better and accelerates corrosion; it dilutes down as water is topped up."
+        )
+    elif salt is not None and salt < SALT_OPERATING_MIN:
+        notes.append(
+            f"Salt is {salt:g} ppm, below the {SALT_OPERATING_MIN} ppm operating minimum - "
+            "the cell will underproduce until it's raised."
+        )
 
     output = state.get("chlorinator_output_pct")
     if output is not None and output >= HIGH_OUTPUT_PCT and cya is not None and cya < 30:
