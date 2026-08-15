@@ -13,6 +13,7 @@ Charting both off `fetched_at` would draw a single chemistry measurement as
 several distinct readings.
 """
 import json
+import os
 import sqlite3
 import sys
 from datetime import datetime, timezone
@@ -134,9 +135,20 @@ def _latest_hand_test(newest: dict, salt: float | None) -> dict | None:
         "lsi": lsi.calculate(
             values.get("ph"), newest.get("water_temp"), values.get("ch"),
             values.get("ta"), values.get("cya"), values.get("salt") or salt,
-            surface=newest.get("surface_type"),
+            surface=_surface(newest),
         ),
     }
+
+
+def _surface(newest: dict) -> str | None:
+    """What the pool is actually finished with.
+
+    WaterGuru's own configuration is used unless POOL_SURFACE overrides it -
+    their app may not offer the right option, and the setting decides what a
+    corrosive index is attacking. Getting it wrong doesn't change the index,
+    only the advice about what it costs.
+    """
+    return os.environ.get("POOL_SURFACE") or newest.get("surface_type")
 
 
 def _controller_salt(conn=None) -> float | None:
@@ -197,7 +209,7 @@ def build_payload(rows: list[dict], now: datetime = None, conn=None) -> dict:
             "lsi": lsi.calculate(
                 newest.get("ph"), newest.get("water_temp"), newest.get("ch"),
                 newest.get("ta"), newest.get("cya"), _controller_salt(conn),
-                surface=newest.get("surface_type"),
+                surface=_surface(newest),
             ),
         }
 

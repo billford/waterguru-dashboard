@@ -109,6 +109,73 @@ def detect_salt_addition(rows: list[dict], gallons: float = None) -> list[dict]:
     return found
 
 
+# Panel values that can only rise if someone raised them. Each carries the
+# smallest rise worth reporting - generous, because these come from a periodic
+# lab-style measurement with real error bars, not a continuously polled sensor.
+PANEL_ADDITIONS = {
+    "ch":  (25.0, "Calcium hardness", "calcium chloride"),
+    "cya": (10.0, "Stabilizer",       "cyanuric acid"),
+    "ta":  (20.0, "Total alkalinity", "alkalinity increaser"),
+}
+
+# Molar mass ratio of calcium carbonate to water-equivalent ppm. Calcium
+# hardness is reported as ppm CaCO3, so this converts a rise into the mass of
+# CaCO3 it represents - a physical conversion, exact.
+#
+# It deliberately stops there. Turning that into a weight of *product* needs the
+# product's identity and purity (calcium chloride comes as 77%, 83%, 94%
+# flake and 35% liquid), and guessing at that is how a confident wrong number
+# gets made. WaterGuru already sizes doses; this only says something happened.
+
+
+def detect_panel_addition(rows: list[dict], gallons: float = None) -> list[dict]:
+    """Rises in panel chemistry that the pool cannot produce by itself.
+
+    Calcium, stabilizer and alkalinity all behave like salt: evaporation
+    concentrates them slowly, dilution lowers them, and nothing else raises
+    them. A step up between measurements means someone added something.
+
+    Unlike salt this is not continuously polled - the panel is measured on its
+    own cycle - so a rise is reported once seen, and marked confirmed only when
+    a later reading holds it. An unconfirmed rise could still be measurement
+    scatter.
+    """
+    found = []
+    for field, (threshold, label, product) in PANEL_ADDITIONS.items():
+        points = []
+        for r in rows:
+            ts = parse_ts(r.get("latest_measure_time") or r.get("fetched_at"))
+            value = r.get(field)
+            if ts is not None and value is not None:
+                points.append((ts, float(value)))
+
+        for i, ((t0, v0), (t1, v1)) in enumerate(zip(points, points[1:])):
+            rise = v1 - v0
+            if rise < threshold:
+                continue
+
+            later = [v for _, v in points[i + 2:]]
+            confirmed = bool(later) and later[0] >= v0 + rise * 0.5
+            pounds = salt_pounds(rise, gallons) if gallons else None
+
+            found.append({
+                "kind": f"{field}_added",
+                "at": t1.isoformat(),
+                "field": field,
+                "from": v0,
+                "to": v1,
+                "delta_ppm": round(rise, 1),
+                "confirmed": confirmed,
+                "text": (
+                    f"{label} rose from {v0:g} to {v1:g} ppm between measurements"
+                    + (f" - about {pounds:.0f} lb of dissolved solids" if pounds and pounds >= 1 else "")
+                    + f". It only rises if someone adds {product}"
+                    + ("." if confirmed else ", though a later reading hasn't confirmed it yet.")
+                ),
+            })
+    return found
+
+
 def detect_chlorine_addition(rows: list[dict], generation_ppm_per_day: float = 0.0,
                              gallons: float = None) -> list[dict]:
     """Chlorine rising faster than the cell could possibly have raised it.
@@ -171,13 +238,19 @@ def _persists(points, start_index: int, before: float, rise: float) -> bool:
     return median(after) >= before + rise * 0.5
 
 
-def summarize(salt_events: list[dict], chlorine_events: list[dict], days: int = 30) -> str | None:
+def summarize(salt_events: list[dict], chlorine_events: list[dict], days: int = 30,
+              panel_events: list[dict] = None) -> str | None:
     """A neutral one-line summary of unlogged additions."""
-    total = len(salt_events) + len(chlorine_events)
+    panel_events = panel_events or []
+    total = len(salt_events) + len(chlorine_events) + len(panel_events)
     if not total:
         return None
 
     parts = []
+    for e in panel_events:
+        label = PANEL_ADDITIONS[e["field"]][1].lower()
+        parts.append(f"{label} raised by {e['delta_ppm']:g} ppm"
+                     + ("" if e["confirmed"] else " (unconfirmed)"))
     if salt_events:
         pounds = sum(e["pounds"] or 0 for e in salt_events)
         parts.append(f"{len(salt_events)} salt addition{'s' if len(salt_events) != 1 else ''}"

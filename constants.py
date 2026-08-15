@@ -112,6 +112,10 @@ HEURISTIC = {
     "interventions.SALT_STEP_PPM / SALT_STEP_WINDOW_HOURS": (
         "150 ppm within 12h reads as an addition rather than evaporation. The "
         "window matters as much as the size."),
+    "interventions.PANEL_ADDITIONS thresholds": (
+        "25 ppm calcium, 10 ppm stabilizer, 20 ppm alkalinity before a rise is "
+        "reported. Generous, because the panel is a periodic lab-style "
+        "measurement with real error bars rather than a polled sensor."),
     "interventions.SALT_MIN_RISE_HOURS": (
         "1h — faster than this is not physically an addition, since salt takes "
         "hours to dissolve and circulate. Added after the detector reported "

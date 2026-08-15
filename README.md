@@ -715,6 +715,11 @@ for most of the swimming season; it's used as a **cross-check** instead, and a
 disagreement larger than DST can explain gets reported. `POOL_TZ_OFFSET`
 overrides for running the pipeline away from the pool.
 
+Similarly `POOL_SURFACE` overrides what the pool is finished with — WaterGuru's
+app may not offer the right option, and the setting decides what a corrosive
+saturation index is attacking. It doesn't change the index, only the advice
+about what it costs.
+
 The digest also stopped asking "is it Sunday?" and now asks "when did one last
 go out?" — a Mac asleep through both Sunday windows used to drop that week
 entirely, with no record and no retry. It's the pipeline's only heartbeat, so a
@@ -769,8 +774,22 @@ That gap matters for a pool under service. A visit that adds fifty pounds of
 salt and a jug of chlorine leaves no note, no receipt in the controller, and no
 entry anywhere — but it does leave a signature in the numbers.
 
+- **Calcium, stabilizer and alkalinity** behave the same way: evaporation
+  concentrates them slowly, dilution lowers them, and nothing else raises them.
+  A step up between panel measurements means someone added something. These are
+  reported once seen and marked *confirmed* only when a later reading holds
+  them, since the panel is a periodic measurement with real error bars.
+
+  It stops at "calcium rose 38 ppm" rather than converting to a product weight —
+  calcium chloride comes as 77%, 83% and 94% flake and 35% liquid, and guessing
+  which is how a confident wrong dose gets stated.
+
 - **Salt** is conservative: it falls only through dilution and rises only
-  through addition. Evaporation concentrates it too, but slowly, so a *step*
+  through addition. It is also *continuously polled*, so it needs two checks the
+  panel doesn't: the rise must take long enough to be physically possible (salt
+  needs hours to dissolve), and it must persist. Without those, the detector
+  reported three 25 lb additions that never happened — each "occurring" in six
+  minutes, all at the same time of day. Evaporation concentrates it too, but slowly, so a *step*
   over hours is a bag of salt while a drift over days isn't. A 320 ppm step on
   15,000 gallons is one 40 lb bag, and the detector says so.
 - **Chlorine** is bounded by what the cell could have produced. The comparison

@@ -496,7 +496,7 @@ def _interventions(state: dict, days: int = 30) -> dict:
         ]
         chem_rows = [
             dict(r) for r in conn.execute(
-                "SELECT fetched_at, latest_measure_time, free_cl FROM snapshots"
+                "SELECT fetched_at, latest_measure_time, free_cl, ch, cya, ta FROM snapshots"
                 " WHERE fetched_at >= datetime('now', ?) ORDER BY fetched_at", (f"-{days} days",)
             ).fetchall()
         ]
@@ -508,14 +508,16 @@ def _interventions(state: dict, days: int = 30) -> dict:
     # rise it could not possibly account for is reported.
     max_generation = saltcell.generation_ppm_per_day(gallons, 100.0, 1.0) or 0.0
 
+    measurements = dedupe_by_measurement(chem_rows)
     salt = interventions.detect_salt_addition(system_rows, gallons)
-    chlorine = interventions.detect_chlorine_addition(
-        dedupe_by_measurement(chem_rows), max_generation, gallons)
+    chlorine = interventions.detect_chlorine_addition(measurements, max_generation, gallons)
+    panel = interventions.detect_panel_addition(measurements, gallons)
 
     return {
         "salt": salt,
         "chlorine": chlorine,
-        "summary": interventions.summarize(salt, chlorine, days),
+        "panel": panel,
+        "summary": interventions.summarize(salt, chlorine, days, panel),
         "window_days": days,
     }
 

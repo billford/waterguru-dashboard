@@ -159,3 +159,66 @@ def test_one_stray_reading_cannot_veto_a_real_addition():
 def test_a_rise_with_too_little_follow_up_waits_rather_than_guessing():
     rows = _series((8, 3200), (10, 3520))
     assert interventions.detect_salt_addition(rows, GALLONS) == []
+
+
+# ---- panel chemistry that only rises if someone raises it ----
+
+def _panel(day, **values):
+    row = {"latest_measure_time": f"2026-08-{day:02d}T21:00:00.000Z"}
+    row.update(values)
+    return row
+
+
+def test_a_calcium_rise_is_reported_as_an_addition():
+    """Calcium doesn't rise on its own - evaporation concentrates it slowly,
+    dilution lowers it, and nothing else moves it up."""
+    rows = [_panel(12, ch=152), _panel(14, ch=190), _panel(16, ch=188)]
+    found = interventions.detect_panel_addition(rows, GALLONS)
+    assert len(found) == 1
+    assert found[0]["field"] == "ch"
+    assert found[0]["delta_ppm"] == 38.0
+    assert "calcium chloride" in found[0]["text"]
+    assert found[0]["confirmed"] is True
+
+
+def test_an_unconfirmed_rise_says_so():
+    """One reading could be measurement scatter; the panel has real error bars."""
+    rows = [_panel(12, ch=152), _panel(14, ch=190)]
+    assert "hasn't confirmed it yet" in interventions.detect_panel_addition(rows, GALLONS)[0]["text"]
+
+
+def test_a_rise_that_does_not_hold_is_not_confirmed():
+    rows = [_panel(12, ch=152), _panel(14, ch=190), _panel(16, ch=151)]
+    assert interventions.detect_panel_addition(rows, GALLONS)[0]["confirmed"] is False
+
+
+def test_measurement_scatter_below_the_threshold_is_ignored():
+    rows = [_panel(12, ch=152), _panel(14, ch=168), _panel(16, ch=170)]
+    assert interventions.detect_panel_addition(rows, GALLONS) == []
+
+
+def test_stabilizer_and_alkalinity_are_watched_too():
+    """Raising stabilizer is on the to-do list, so it should be logged when done."""
+    rows = [_panel(12, cya=13, ta=120), _panel(14, cya=45, ta=150), _panel(16, cya=44, ta=148)]
+    fields = {e["field"] for e in interventions.detect_panel_addition(rows, GALLONS)}
+    assert fields == {"cya", "ta"}
+
+
+def test_a_falling_panel_value_is_dilution_not_an_addition():
+    rows = [_panel(12, ch=190), _panel(14, ch=152), _panel(16, ch=150)]
+    assert interventions.detect_panel_addition(rows, GALLONS) == []
+
+
+def test_it_does_not_convert_to_a_product_weight():
+    """Calcium chloride comes as 77%, 83%, 94% flake and 35% liquid. Guessing
+    at which is how a confident wrong dose gets stated."""
+    rows = [_panel(12, ch=152), _panel(14, ch=190), _panel(16, ch=188)]
+    text = interventions.detect_panel_addition(rows, GALLONS)[0]["text"]
+    assert "lb of calcium chloride" not in text
+
+
+def test_the_summary_includes_panel_additions():
+    rows = [_panel(12, ch=152), _panel(14, ch=190), _panel(16, ch=188)]
+    panel = interventions.detect_panel_addition(rows, GALLONS)
+    text = interventions.summarize([], [], 30, panel)
+    assert "calcium hardness raised by 38 ppm" in text

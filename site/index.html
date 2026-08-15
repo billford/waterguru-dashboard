@@ -1063,7 +1063,9 @@ function renderSystem() {
 function renderInterventions() {
   const card = document.getElementById('interventionCard');
   const data = state.system && state.system.interventions;
-  const events = data ? [...(data.salt || []), ...(data.chlorine || [])] : [];
+  const events = data
+    ? [...(data.salt || []), ...(data.chlorine || []), ...(data.panel || [])]
+    : [];
   if (!events.length) { card.style.display = 'none'; return; }
   card.style.display = '';
 
@@ -1077,7 +1079,8 @@ function renderInterventions() {
     row.className = 'anomaly-row';
     const icon = document.createElement('span');
     icon.className = 'anomaly-icon';
-    icon.textContent = e.kind === 'salt_added' ? '\ud83e\uddc2' : '\ud83e\uddea';
+    icon.textContent = e.kind === 'salt_added' ? '\ud83e\uddc2'
+      : e.kind === 'chlorine_added' ? '\ud83e\uddea' : '\u2697\ufe0f';
     const body = document.createElement('div');
     const when = document.createElement('div');
     when.className = 'alert-meta';
