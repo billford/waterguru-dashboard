@@ -82,3 +82,24 @@ def test_detect_runs_every_check_and_findings_have_stable_signatures():
 def test_a_healthy_series_produces_no_findings():
     rows = [reading(d, free_cl=3.0 + d * 0.15, ph=7.4 + d * 0.02, water_temp=80 + d) for d in range(1, 7)]
     assert anomaly.detect(rows, fields=("free_cl", "ph", "water_temp")) == []
+
+
+def test_impossible_hardness_flagged():
+    """Total hardness below calcium hardness cannot happen; the panel misread."""
+    rows = [{"th": 16.0, "ch": 152.0, "latest_measure_time": "2026-08-12T17:11:00Z"}]
+    found = anomaly.detect_impossible_hardness(rows)
+    assert found and found["kind"] == "impossible_hardness"
+    assert "cannot be lower" in found["text"]
+
+
+def test_impossible_hardness_clears_on_a_good_panel():
+    """A stale bad panel stops mattering once a consistent one lands after it."""
+    rows = [
+        {"th": 16.0, "ch": 152.0, "latest_measure_time": "2026-08-12T17:11:00Z"},
+        {"th": 190.0, "ch": 190.0, "latest_measure_time": "2026-08-14T17:07:00Z"},
+    ]
+    assert anomaly.detect_impossible_hardness(rows) is None
+
+
+def test_impossible_hardness_ignores_missing_values():
+    assert anomaly.detect_impossible_hardness([{"ch": 190.0}, {"th": None, "ch": 1.0}]) is None

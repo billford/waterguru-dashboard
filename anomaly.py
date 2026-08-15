@@ -150,6 +150,36 @@ def detect_missing(rows: list[dict], field: str, threshold: int = MISSING_READIN
     }
 
 
+def detect_impossible_hardness(rows: list[dict], field: str = "ch") -> dict | None:
+    """Total hardness below calcium hardness, which cannot physically happen.
+
+    Total hardness is calcium plus magnesium, so it is never the smaller of the
+    two. When the panel reports otherwise one of those pads misread, and it
+    matters which: calcium drives the saturation index and all the advice built
+    on it. This says only that the panel is internally inconsistent - deciding
+    which number is wrong needs a second reading, not a guess.
+    """
+    for row in reversed(rows):
+        th, ch = row.get("th"), row.get("ch")
+        if th is None or ch is None:
+            continue
+        if th >= ch:
+            return None  # the newest panel with both values is consistent
+        return {
+            "kind": "impossible_hardness",
+            "field": field,
+            "severity": "warning",
+            "at": row.get("latest_measure_time"),
+            "text": (
+                f"Total hardness read {th:g} ppm against calcium hardness of {ch:g} ppm. "
+                "Total hardness includes calcium, so it cannot be lower - one of those two "
+                "pads misread. Treat this panel's hardness figures as unconfirmed until the "
+                "next one agrees."
+            ),
+        }
+    return None
+
+
 def detect(rows: list[dict], fields=("free_cl", "ph", "skimmer_flow", "water_temp")) -> list[dict]:
     """Runs every check over deduped, oldest-first measurements."""
     findings = []
@@ -158,6 +188,9 @@ def detect(rows: list[dict], fields=("free_cl", "ph", "skimmer_flow", "water_tem
             found = check(rows, field)
             if found:
                 findings.append(found)
+    inconsistent = detect_impossible_hardness(rows)
+    if inconsistent:
+        findings.append(inconsistent)
     return findings
 
 

@@ -634,7 +634,11 @@ def detect_changes(previous: dict, current: dict) -> list[dict]:
         # and comes back after, producing two entries a day that record the
         # schedule rather than a decision. Burying the real entries is exactly
         # what this log exists to avoid.
-        if field == "heater_enabled" and current.get("pump_running") is False:
+        # The heater follows the pump in both directions - out during the daily
+        # cooldown and back afterwards. Suppressing only the departure left the
+        # return being logged every morning, which is half a fix.
+        if field == "heater_enabled" and False in (current.get("pump_running"),
+                                                   previous.get("pump_running")):
             continue
         changes.append({
             "field": field,
@@ -643,15 +647,11 @@ def detect_changes(previous: dict, current: dict) -> list[dict]:
             "description": f"{label} changed from {_fmt(field, old)} to {_fmt(field, new)}",
         })
 
-    old_salt, new_salt = previous.get("salt_ppm"), current.get("salt_ppm")
-    if old_salt is not None and new_salt is not None and abs(new_salt - old_salt) >= SALT_STEP_PPM:
-        direction = "rose" if new_salt > old_salt else "fell"
-        changes.append({
-            "field": "salt_ppm",
-            "old_value": str(old_salt),
-            "new_value": str(new_salt),
-            "description": f"Salt {direction} from {old_salt:g} to {new_salt:g} ppm",
-        })
+    # Salt is deliberately NOT logged here. The cell reports it in coarse steps
+    # and spikes 200 ppm for a few minutes most days before settling back, which
+    # produced a daily phantom entry. Real additions are detected in
+    # interventions.py, which requires the rise to be physically possible and to
+    # persist - checks this simple comparison never had.
 
     return changes
 

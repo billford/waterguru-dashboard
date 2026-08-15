@@ -253,10 +253,16 @@ def test_scheduled_pump_and_circuit_activity_is_not_logged_as_a_change():
     assert pentair.detect_changes({**BEFORE, "pump_running": True}, noisy) == []
 
 
-def test_salt_drifting_slowly_is_ignored_but_a_step_is_recorded():
-    assert pentair.detect_changes(BEFORE, {**BEFORE, "salt_ppm": 4300.0}) == []
-    stepped = pentair.detect_changes(BEFORE, {**BEFORE, "salt_ppm": 4000.0})
-    assert "Salt fell from 4350 to 4000 ppm" in stepped[0]["description"]
+def test_no_salt_movement_is_an_equipment_change():
+    """Neither drift nor a step belongs in the equipment log.
+
+    This test used to assert the opposite. The cell reports salt in coarse steps
+    and swings ~200 ppm most days before settling, which filled the pool log with
+    additions nobody made. Salt is now judged in interventions.py, where a rise
+    must be physically possible and must persist before it counts.
+    """
+    for salt in (4300.0, 4000.0, 4550.0):
+        assert pentair.detect_changes(BEFORE, {**BEFORE, "salt_ppm": salt}) == []
 
 
 def test_several_changes_at_once_are_all_recorded():
@@ -319,3 +325,23 @@ def test_switching_the_heater_off_while_the_pump_runs_is_still_logged():
     before = {**BEFORE, "pump_running": True}
     after = {**BEFORE, "heater_enabled": False, "pump_running": True}
     assert "Heater changed from on to off" in pentair.detect_changes(before, after)[0]["description"]
+
+
+def test_heater_following_pump_back_on_is_not_logged():
+    """The heater returns with the pump after cooldown; that is not a decision."""
+    off = {"heater_enabled": False, "pump_running": False, "chlorinator_output_pct": 40}
+    on = {"heater_enabled": True, "pump_running": True, "chlorinator_output_pct": 40}
+    assert pentair.detect_changes(off, on) == []
+
+
+def test_heater_change_while_pump_runs_is_logged():
+    before = {"heater_enabled": True, "pump_running": True, "chlorinator_output_pct": 40}
+    after = {"heater_enabled": False, "pump_running": True, "chlorinator_output_pct": 40}
+    assert any("Heater" in c["description"] for c in pentair.detect_changes(before, after))
+
+
+def test_salt_swings_are_not_logged_as_equipment_changes():
+    """The cell's salt reading spikes daily; real additions live in interventions."""
+    before = {"salt_ppm": 4300, "pump_running": True, "chlorinator_output_pct": 40}
+    after = {"salt_ppm": 4500, "pump_running": True, "chlorinator_output_pct": 40}
+    assert pentair.detect_changes(before, after) == []

@@ -63,6 +63,10 @@ SOURCED = {
     "lsi.tds_constant table": (
         "Standard Langelier TDS factor: 12.1 below 1000 ppm, rising to 12.4 above "
         "4000. A salt pool sits at the top, which shifts LSI by -0.3."),
+    "anomaly.detect_impossible_hardness": (
+        "Total hardness = calcium hardness + magnesium hardness, so TH < CH is "
+        "definitionally impossible. Not a tunable threshold - a physical identity, "
+        "which is why it needs no margin."),
     "lsi.CYA_ALKALINITY_SHARE": (
         "0.33 — cyanurate's contribution to a measured total alkalinity reading "
         "near pool pH. Standard correction in pool chemistry practice."),
@@ -111,7 +115,9 @@ HEURISTIC = {
         "cell's salt reading is noisy at the +/-100 ppm level."),
     "interventions.SALT_STEP_PPM / SALT_STEP_WINDOW_HOURS": (
         "150 ppm within 12h reads as an addition rather than evaporation. The "
-        "window matters as much as the size."),
+        "window matters as much as the size. This lives here and nowhere else: a "
+        "second copy in pentair.detect_changes logged a phantom addition most "
+        "days, because it had none of the plausibility checks this one grew."),
     "interventions.PANEL_ADDITIONS thresholds": (
         "25 ppm calcium, 10 ppm stabilizer, 20 ppm alkalinity before a rise is "
         "reported. Generous, because the panel is a periodic lab-style "
