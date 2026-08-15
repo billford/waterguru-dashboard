@@ -30,9 +30,21 @@ from freshness import parse_ts
 
 WATER_LB_PER_GALLON = 8.34
 
-# A rise this large, this fast, is an addition rather than evaporation.
+# A rise this large is an addition rather than evaporation.
 SALT_STEP_PPM = 150
 SALT_STEP_WINDOW_HOURS = 12
+
+# ...but not this fast. Salt takes hours to dissolve and circulate, so a jump
+# inside a few minutes is the cell's reading moving, not the pool's chemistry.
+# Without this the detector reported three 25 lb additions that never happened,
+# each "occurring" in six minutes, all at the same time of day.
+SALT_MIN_RISE_HOURS = 1.0
+
+# And it has to stick. Salt that goes up and comes back down was never added -
+# the pool cannot lose it. Confirmation is the median of the readings that
+# follow, which ignores a spike however large.
+SALT_PERSIST_HOURS = 6.0
+SALT_PERSIST_SAMPLES = 3
 
 # Chlorine above what the cell could have made in the interval, with headroom
 # for measurement noise on both readings.
@@ -55,6 +67,11 @@ def chlorine_pounds(delta_ppm: float, gallons: float) -> float | None:
 def detect_salt_addition(rows: list[dict], gallons: float = None) -> list[dict]:
     """Step rises in salt concentration, which only a person can cause.
 
+    Three things must hold, and the last two were missing: the rise must be
+    large, it must take long enough to be physically possible, and the new
+    level must persist. Salt cannot leave the pool, so a rise that reverses was
+    an instrument artefact rather than a bag of salt.
+
     `rows` are system snapshots, oldest first.
     """
     points = []
@@ -64,11 +81,15 @@ def detect_salt_addition(rows: list[dict], gallons: float = None) -> list[dict]:
             points.append((ts, salt))
 
     found = []
-    for (t0, s0), (t1, s1) in zip(points, points[1:]):
+    for i, ((t0, s0), (t1, s1)) in enumerate(zip(points, points[1:])):
         rise = s1 - s0
         gap_hours = (t1 - t0).total_seconds() / 3600
         if rise < SALT_STEP_PPM or gap_hours > SALT_STEP_WINDOW_HOURS:
             continue
+        if gap_hours < SALT_MIN_RISE_HOURS:
+            continue  # faster than salt can dissolve and circulate
+        if not _persists(points, i + 1, s0, rise):
+            continue  # went back down, so nothing was added
 
         pounds = salt_pounds(rise, gallons)
         bags = f" - about {pounds / 40:.1f} × 40 lb bags" if pounds else ""
@@ -132,6 +153,22 @@ def detect_chlorine_addition(rows: list[dict], generation_ppm_per_day: float = 0
             ),
         })
     return found
+
+
+def _persists(points, start_index: int, before: float, rise: float) -> bool:
+    """Did the raised level hold, or was it a spike?
+
+    Confirmed against the median of the readings in the window that follows, so
+    one more excursion in either direction cannot decide it either way.
+    """
+    from statistics import median
+
+    end = points[start_index][0] + timedelta(hours=SALT_PERSIST_HOURS)
+    after = [salt for ts, salt in points[start_index:] if ts <= end]
+    if len(after) < SALT_PERSIST_SAMPLES:
+        return False          # not enough evidence yet; wait rather than guess
+    # Still clearly above where it started, allowing for the reading's coarseness.
+    return median(after) >= before + rise * 0.5
 
 
 def summarize(salt_events: list[dict], chlorine_events: list[dict], days: int = 30) -> str | None:

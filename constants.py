@@ -112,6 +112,13 @@ HEURISTIC = {
     "interventions.SALT_STEP_PPM / SALT_STEP_WINDOW_HOURS": (
         "150 ppm within 12h reads as an addition rather than evaporation. The "
         "window matters as much as the size."),
+    "interventions.SALT_MIN_RISE_HOURS": (
+        "1h — faster than this is not physically an addition, since salt takes "
+        "hours to dissolve and circulate. Added after the detector reported "
+        "three 25 lb additions that each 'happened' in six minutes."),
+    "interventions.SALT_PERSIST_HOURS / SALT_PERSIST_SAMPLES": (
+        "6h and 3 readings of confirmation. Salt cannot leave the pool, so a "
+        "rise that reverses was an instrument artefact rather than a bag."),
     "consumables.CASSETTE_LEAD_DAYS / BATTERY_LEAD_DAYS": (
         "14 and 21 days of reorder notice. Chosen for shipping time."),
     "pentair.VOLUME_MISMATCH_TOLERANCE": (
