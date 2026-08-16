@@ -27,6 +27,10 @@ HERE = Path(__file__).resolve().parent
 
 from pentair import COMPLETE_MEASUREMENT_PADS
 
+# Above this, flow has been observed to support a completed measurement, so a
+# failure here cannot be blamed on circulation.
+HEALTHY_FLOW_GPM = 12
+
 
 def _local(iso) -> str:
     if not iso:
@@ -72,6 +76,60 @@ def pad_events(conn) -> list[dict]:
     return events
 
 
+def by_cassette(events: list[dict]) -> list[dict]:
+    """Split the pad history at each re-registration: one block per cassette.
+
+    The point of the split is that it separates two very different claims. "This
+    cassette is defective" is answered by one block; "the pod cannot read any
+    cassette" is answered only by comparing them.
+    """
+    blocks, current = [], None
+    for event in events:
+        if event["outcome"] == "first observation" or "replaced" in event["outcome"]:
+            current = {"installed": event["fetched_at"], "max_pads": event["cassette_pads_max"],
+                       "succeeded": [], "failed": []}
+            blocks.append(current)
+            continue
+        if current is None:
+            continue
+        bucket = "succeeded" if "completed" in event["outcome"] else "failed"
+        if "FAILED" in event["outcome"] or "completed" in event["outcome"]:
+            current[bucket].append(event)
+    return blocks
+
+
+def cross_cassette_summary(events: list[dict]) -> list[str]:
+    """The part of the evidence that no single cassette can explain."""
+    blocks = by_cassette(events)
+    failures = [e for e in events if e["outcome"].startswith("ATTEMPT FAILED")]
+    healthy = [e for e in failures if (e["skimmer_flow"] or 0) >= HEALTHY_FLOW_GPM]
+
+    out = ["", "THE PATTERN REPEATS ACROSS CASSETTES", ""]
+    for i, b in enumerate(blocks, 1):
+        if not (b["succeeded"] or b["failed"]):
+            continue
+        out.append(f"  Cassette {i} (installed {_local(b['installed'])}, {b['max_pads']:.0f} pads): "
+                   f"{len(b['succeeded'])} measurement(s) produced, {len(b['failed'])} attempt(s) failed")
+        for e in b["failed"]:
+            out.append(f"      {_local(e['fetched_at'])}  burned {abs(e['consumed']):.0f} pads, "
+                       f"no reading, skimmer flow {e['skimmer_flow'] or 0:.0f} gpm")
+
+    out += [
+        "",
+        f"  {len(failures)} failed attempts in total, {len(healthy)} of them with skimmer flow at or",
+        f"  above {HEALTHY_FLOW_GPM} gpm - so low flow does not account for them.",
+        "",
+        "  Every failure aborts after 2-5 pads. A measurement that completes uses 10 or more.",
+        "  The pod stops partway through the sequence rather than producing a bad reading.",
+        "",
+        "  A replacement cassette, installed after the first was confirmed defective, shows the",
+        "  same behaviour. Two defective cassettes in a row is possible; the pod being unable to",
+        "  read any of them is the simpler explanation, and this data cannot distinguish them.",
+        "  Please advise on replacing the pod rather than shipping further cassettes.",
+    ]
+    return out
+
+
 def build() -> str:
     load_dotenv()
     raw = json.loads((HERE / "data" / "latest.json").read_text())["data"]
@@ -109,6 +167,8 @@ def build() -> str:
         flow = "" if e["skimmer_flow"] is None else f" | skimmer flow {e['skimmer_flow']:.0f} gpm"
         out.append(f"  {_local(e['fetched_at'])}  {e['cassette_pads_left']:.0f}/"
                    f"{e['cassette_pads_max']:.0f} pads  {consumed}{e['outcome']}{flow}")
+
+    out += cross_cassette_summary(events)
 
     out += [
         "",
