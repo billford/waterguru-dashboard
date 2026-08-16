@@ -364,6 +364,15 @@
     <h2>Full chemistry panel</h2>
     <div class="card-sub" id="panelSub"></div>
     <div class="tiles" id="panelTiles"></div>
+    <div class="trust-banner" id="cyaNote" style="display:none;">
+      <span>🧪</span>
+      <div>
+        <b id="cyaHeading"></b>
+        <span id="cyaText"></span>
+        <div class="trust-how" id="cyaBand"></div>
+        <div class="trust-how" id="cyaCaveat"></div>
+      </div>
+    </div>
     <div class="trust-banner" id="lsiNote" style="display:none;">
       <span>⚖️</span>
       <div>
@@ -927,7 +936,7 @@ function render() {
   const targets = wb.targets || {};
   state.ranges = wb.ranges || {};
   renderTiles(latest, lastChem, targets, freshness);
-  renderPanel(lastChem, targets, freshness, wb.lsi);
+  renderPanel(lastChem, targets, freshness, wb.lsi, wb.stabilizer);
   renderHandTest(wb.hand_test);
   renderChart('chart-free_cl', series, 'free_cl', 'ppm', targets.free_cl, 'var(--series-1)');
   renderChart('chart-ph', series, 'ph', '', targets.ph, 'var(--series-2)');
@@ -1158,8 +1167,9 @@ const PANEL_ITEMS = [
   { key: 'th',  source: 'TH',  label: 'Total hardness',   unit: 'ppm' },
 ];
 
-function renderPanel(lastChem, targets, freshness, saturation) {
+function renderPanel(lastChem, targets, freshness, saturation, stabilizer) {
   renderLsi(saturation);
+  renderStabilizer(stabilizer);
   const card = document.getElementById('panelCard');
   const chem = lastChem || {};
   const present = PANEL_ITEMS.filter(it => chem[it.key] !== null && chem[it.key] !== undefined);
@@ -1194,6 +1204,21 @@ function renderPanel(lastChem, targets, freshness, saturation) {
 // as a fresh, in-range one, complete with the green stripe.
 // The panel numbers individually say little; together they say whether the
 // water is dissolving the pool or scaling it.
+// A chlorine reading is only interpretable next to the stabilizer level, so
+// this sits with the panel rather than with the chlorine tile.
+function renderStabilizer(st) {
+  const box = document.getElementById('cyaNote');
+  if (!st) { box.style.display = 'none'; return; }
+  box.style.display = '';
+  document.getElementById('cyaHeading').textContent = st.headline + ' ';
+  document.getElementById('cyaText').textContent = st.detail;
+  document.getElementById('cyaBand').textContent =
+    'At ' + st.cya + ' ppm stabilizer the usual band is ' + st.band.minimum +
+    '-' + st.band.shock + ' ppm chlorine, targeting ' + st.band.target +
+    '. This pool reads ' + st.free_cl + ' ppm, or ' + st.ratio_pct + '% of stabilizer.';
+  document.getElementById('cyaCaveat').textContent = st.caveat;
+}
+
 function renderLsi(saturation) {
   const box = document.getElementById('lsiNote');
   if (!saturation || saturation.verdict === 'balanced') { box.style.display = 'none'; return; }

@@ -21,6 +21,7 @@ from pathlib import Path
 
 import dosing
 import lsi
+import stabilizer
 import trust
 from db import connect, dedupe_by_measurement
 from freshness import freshness_for
@@ -210,6 +211,12 @@ def build_payload(rows: list[dict], now: datetime = None, conn=None) -> dict:
                 newest.get("ph"), newest.get("water_temp"), newest.get("ch"),
                 newest.get("ta"), newest.get("cya"), _controller_salt(conn),
                 surface=_surface(newest),
+            ),
+            # A chlorine number alone can't say whether the water is harsh or
+            # sanitary; that depends entirely on the stabilizer beside it.
+            "stabilizer": stabilizer.assess(
+                newest.get("free_cl"), newest.get("cya"),
+                salt_pool=_controller_salt(conn) is not None,
             ),
         }
 

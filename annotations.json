@@ -25,6 +25,11 @@
       "note": "WaterGuru support confirmed the cassette was defective; shipping two replacements free of charge. Matches the pad-count evidence: four attempts consuming 2-4 pads each against a normal 10, at flows both low and healthy.",
       "recorded_at": "2026-08-11T01:24:52.536992+00:00",
       "type": "note"
+    },
+    "2026-08-16T23:45:23.906087+00:00": {
+      "note": "Dropped salt cell output 40% -> 34%: chlorine was stinging swimmers' eyes.",
+      "recorded_at": "2026-08-16T23:45:23.906247+00:00",
+      "type": "note"
     }
   },
   "measurements": {

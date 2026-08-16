@@ -67,6 +67,15 @@ SOURCED = {
         "Total hardness = calcium hardness + magnesium hardness, so TH < CH is "
         "definitionally impossible. Not a tunable threshold - a physical identity, "
         "which is why it needs no margin."),
+    "stabilizer.MIN_FRACTION / TARGET_FRACTION / SHOCK_FRACTION": (
+        "7.5% / 11% / 40% of the cyanuric acid level. The Trouble Free Pool "
+        "chlorine-CYA relationship, the most widely replicated form of this. "
+        "Ratios rather than fixed ppm, because the absolute chlorine number is "
+        "not the thing that determines whether water is sanitary or harsh."),
+    "stabilizer.CYA_OUTDOOR_MIN / CYA_SALT_POOL_MIN": (
+        "30 ppm outdoor, 60 ppm for a salt pool. Pentair says 30-50; Trouble Free "
+        "Pool prefers 60-80 with a cell. The sources disagree at the edges and "
+        "agree completely that single digits is not a range anyone recommends."),
     "lsi.CYA_ALKALINITY_SHARE": (
         "0.33 — cyanurate's contribution to a measured total alkalinity reading "
         "near pool pH. Standard correction in pool chemistry practice."),
@@ -129,6 +138,9 @@ HEURISTIC = {
     "interventions.SALT_PERSIST_HOURS / SALT_PERSIST_SAMPLES": (
         "6h and 3 readings of confirmation. Salt cannot leave the pool, so a "
         "rise that reverses was an instrument artefact rather than a bag."),
+    "stabilizer.MIN_USEFUL_CYA": (
+        "20 ppm, below which the ratio rules stop being useful - the implied "
+        "target lands inside ordinary measurement error. My line, not a source's."),
     "consumables.CASSETTE_LEAD_DAYS / BATTERY_LEAD_DAYS": (
         "14 and 21 days of reorder notice. Chosen for shipping time."),
     "pentair.VOLUME_MISMATCH_TOLERANCE": (
