@@ -32,6 +32,10 @@ from consumables import runway, was_replaced
 from db import connect, dedupe_by_measurement, last_sent_at, mark_sent, was_sent
 from freshness import stale_measurement_alert
 
+# The iOS ntfy app can't name subscriptions, so every message on this topic leads
+# with the same emoji: that's how you tell the feeds apart.
+BADGE = "swimmer"
+
 # How long before a standing, non-resetting condition is allowed to nag again.
 RENAG_DAYS = 7
 
@@ -73,7 +77,8 @@ def _ntfy_push(topic: str, title: str, message: str, priority: str = "high", tag
         resp = requests.post(
             f"{base}/{topic}",
             data=message.encode("utf-8"),
-            headers={"Title": title, "Priority": priority, "Tags": tags},
+            headers={"Title": title, "Priority": priority,
+                     "Tags": ",".join([BADGE] + [t for t in tags.split(",") if t and t != BADGE])},
             auth=(user, password) if user and password else None,
             timeout=10,
         )
